@@ -532,7 +532,7 @@ s32 e1000_read_sfp_data_byte(struct e1000_hw *hw, u16 offset, u8 *data)
 	}
 	if (data_local & E1000_I2CCMD_ERROR) {
 		DEBUGOUT("I2CCMD Error bit set\n");
-		return -E1000_ERR_PHY;
+		return -E1000_ERR_I2C;
 	}
 	*data = (u8) data_local & 0xFF;
 
@@ -1291,7 +1291,9 @@ s32 e1000_copper_link_setup_m88_gen2(struct e1000_hw *hw)
 		phy_data |= M88E1000_PSCR_POLARITY_REVERSAL;
 
 	/* Enable downshift and setting it to X6 */
-	if (phy->id == M88E1543_E_PHY_ID) {
+    switch (phy->id) {
+        case M88E1512_E_PHY_ID:
+        case M88E1543_E_PHY_ID:
 		phy_data &= ~I347AT4_PSCR_DOWNSHIFT_ENABLE;
 		ret_val =
 		    phy->ops.write_reg(hw, M88E1000_PHY_SPEC_CTRL, phy_data);
@@ -3469,6 +3471,8 @@ STATIC s32 e1000_access_phy_wakeup_reg_bm(struct e1000_hw *hw, u32 offset,
 void e1000_power_up_phy_copper(struct e1000_hw *hw)
 {
 	u16 mii_reg = 0;
+
+   DEBUGFUNC("e1000_power_up_phy_copper");
 
 	/* The PHY will retain its settings across a power down/up cycle */
 	hw->phy.ops.read_reg(hw, PHY_CONTROL, &mii_reg);

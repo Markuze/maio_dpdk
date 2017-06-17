@@ -7,6 +7,10 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <rte_string_fns.h>
 #include <rte_common.h>
@@ -736,6 +740,64 @@ static int igb_flex_filter_uninit(struct rte_eth_dev *eth_dev)
 	return 0;
 }
 
+#define PCI_CONFIG_COMMAND_OFFSET       4 /* Offset 4 in PCI config space. */
+
+#define PCI_CONFIG_CTRL_IO_SPACE_EN     (1 << 0)
+#define PCI_CONFIG_CTRL_MEM_SPACE_EN    (1 << 1)
+#define PCI_CONFIG_CTRL_BUSMASTER_EN    (1 << 2)
+#define PCI_CONFIG_CTRL_PARITY_ERR      (1 << 6)
+#define PCI_CONFIG_CTRL_SERR            (1 << 8)
+#define PCI_CONFIG_CTRL_INTR_DISABLE    (1 << 10)
+
+static int
+eth_igb_dev_enable(struct rte_pci_device *pci_dev)
+{
+        int fd, rv;
+        u16 pci_config_ctrl;
+        char sysfs_pci_bdf_path[256];
+
+        /* Will not happen, but protect regardless. */
+        if (! pci_dev)
+                return -1;
+
+        sprintf(sysfs_pci_bdf_path, "/sys/bus/pci/devices/0000:%02x:%02x.%01x/config",
+                pci_dev->addr.bus, pci_dev->addr.devid, pci_dev->addr.function);
+
+        fd = open(sysfs_pci_bdf_path, O_RDWR | O_SYNC);
+        if (fd < 0)
+                return -1;
+
+        rv = lseek(fd, PCI_CONFIG_COMMAND_OFFSET, SEEK_SET);
+        if (rv < 0)
+                goto bail;
+
+        rv = read(fd, &pci_config_ctrl, sizeof(pci_config_ctrl));
+        if (rv < (int)sizeof(pci_config_ctrl)) {
+                rv = -1;
+                goto bail;
+        }
+
+        pci_config_ctrl |= PCI_CONFIG_CTRL_INTR_DISABLE | PCI_CONFIG_CTRL_SERR |
+                PCI_CONFIG_CTRL_PARITY_ERR | PCI_CONFIG_CTRL_BUSMASTER_EN |
+                PCI_CONFIG_CTRL_MEM_SPACE_EN | PCI_CONFIG_CTRL_IO_SPACE_EN;
+
+	/* Reset file pointer back to position we want. */
+	rv = lseek(fd, PCI_CONFIG_COMMAND_OFFSET, SEEK_SET);
+        if (rv < 0)
+                goto bail;
+
+        rv = write(fd, &pci_config_ctrl, sizeof(pci_config_ctrl));
+        if (rv < (int)sizeof(pci_config_ctrl)) {
+                rv = -1;
+                goto bail;
+        }
+        rv = 0;
+
+bail:
+        close(fd);
+        return rv;
+}
+
 static int
 eth_igb_dev_init(struct rte_eth_dev *eth_dev)
 {
@@ -767,6 +829,11 @@ eth_igb_dev_init(struct rte_eth_dev *eth_dev)
 	}
 
 	rte_eth_copy_pci_info(eth_dev, pci_dev);
+
+	if (eth_igb_dev_enable(pci_dev) < 0) {
+		PMD_INIT_LOG(ERR, "device enable failed");
+		return -EIO;
+	}
 
 	hw->hw_addr= (void *)pci_dev->mem_resource[0].addr;
 
@@ -2409,6 +2476,8 @@ eth_igb_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 				      E1000_STATUS_LU);
 			break;
 
+        case e1000_media_type_switch:
+        case e1000_media_type_sfp:
 		case e1000_media_type_internal_serdes:
 			e1000_check_for_link(hw);
 			link_check = hw->mac.serdes_has_link;

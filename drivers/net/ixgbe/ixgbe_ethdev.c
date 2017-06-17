@@ -9,6 +9,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <inttypes.h>
 #include <netinet/in.h>
 #include <rte_string_fns.h>
@@ -149,6 +152,7 @@ static int  ixgbe_dev_set_link_up(struct rte_eth_dev *dev);
 static int  ixgbe_dev_set_link_down(struct rte_eth_dev *dev);
 static void ixgbe_dev_close(struct rte_eth_dev *dev);
 static int  ixgbe_dev_reset(struct rte_eth_dev *dev);
+static void ixgbe_dev_detect_sfp(struct rte_eth_dev *dev);
 static int ixgbe_dev_promiscuous_enable(struct rte_eth_dev *dev);
 static int ixgbe_dev_promiscuous_disable(struct rte_eth_dev *dev);
 static int ixgbe_dev_allmulticast_enable(struct rte_eth_dev *dev);
@@ -529,6 +533,7 @@ static const struct eth_dev_ops ixgbe_eth_dev_ops = {
 	.dev_set_link_down  = ixgbe_dev_set_link_down,
 	.dev_close            = ixgbe_dev_close,
 	.dev_reset	      = ixgbe_dev_reset,
+	.dev_detect           = ixgbe_dev_detect_sfp,
 	.promiscuous_enable   = ixgbe_dev_promiscuous_enable,
 	.promiscuous_disable  = ixgbe_dev_promiscuous_disable,
 	.allmulticast_enable  = ixgbe_dev_allmulticast_enable,
@@ -1071,6 +1076,65 @@ ixgbe_swfw_lock_reset(struct ixgbe_hw *hw)
 	ixgbe_release_swfw_semaphore(hw, mask);
 }
 
+#define PCI_CONFIG_COMMAND_OFFSET       4 /* Offset 4 in PCI config space. */
+
+#define PCI_CONFIG_CTRL_IO_SPACE_EN     (1 << 0)
+#define PCI_CONFIG_CTRL_MEM_SPACE_EN    (1 << 1)
+#define PCI_CONFIG_CTRL_BUSMASTER_EN    (1 << 2)
+#define PCI_CONFIG_CTRL_PARITY_ERR      (1 << 6)
+#define PCI_CONFIG_CTRL_SERR            (1 << 8)
+#define PCI_CONFIG_CTRL_INTR_DISABLE    (1 << 10)
+
+static int
+eth_ixgbe_dev_enable(struct rte_pci_device *pci_dev)
+{
+        int fd, rv;
+        u16 pci_config_ctrl;
+        char sysfs_pci_bdf_path[256];
+
+        /* Will not happen, but protect regardless. */
+        if (! pci_dev)
+                return -1;
+
+        sprintf(sysfs_pci_bdf_path, "/sys/bus/pci/devices/0000:%02x:%02x.%01x/config",
+                pci_dev->addr.bus, pci_dev->addr.devid, pci_dev->addr.function);
+
+        fd = open(sysfs_pci_bdf_path, O_RDWR | O_SYNC);
+        if (fd < 0)
+                return -1;
+
+        rv = lseek(fd, PCI_CONFIG_COMMAND_OFFSET, SEEK_SET);
+        if (rv < 0)
+                goto bail;
+
+        rv = read(fd, &pci_config_ctrl, sizeof(pci_config_ctrl));
+        if (rv < (int)sizeof(pci_config_ctrl)) {
+                rv = -1;
+                goto bail;
+        }
+
+        pci_config_ctrl |= PCI_CONFIG_CTRL_INTR_DISABLE | PCI_CONFIG_CTRL_SERR |
+                PCI_CONFIG_CTRL_PARITY_ERR | PCI_CONFIG_CTRL_BUSMASTER_EN |
+                PCI_CONFIG_CTRL_MEM_SPACE_EN | PCI_CONFIG_CTRL_IO_SPACE_EN;
+
+	/* Reset file pointer back to position we want. */
+	rv = lseek(fd, PCI_CONFIG_COMMAND_OFFSET, SEEK_SET);
+        if (rv < 0)
+                goto bail;
+
+        rv = write(fd, &pci_config_ctrl, sizeof(pci_config_ctrl));
+        if (rv < (int)sizeof(pci_config_ctrl)) {
+                rv = -1;
+                goto bail;
+        }
+        rv = 0;
+
+bail:
+        close(fd);
+        return rv;
+}
+
+
 /*
  * This function is based on code in ixgbe_attach() in base/ixgbe.c.
  * It returns 0 on success.
@@ -1132,6 +1196,11 @@ eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev, void *init_params __rte_unused)
 
 	rte_atomic32_clear(&ad->link_thread_running);
 	rte_eth_copy_pci_info(eth_dev, pci_dev);
+
+        if (eth_ixgbe_dev_enable(pci_dev) < 0) {
+		PMD_INIT_LOG(ERR, "device enable failed");
+		return -EIO;
+	}
 
 	/* Vendor and Device ID need to be set before init of shared code */
 	hw->device_id = pci_dev->id.device_id;
@@ -1222,8 +1291,12 @@ eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev, void *init_params __rte_unused)
 		PMD_INIT_LOG(ERR, "If you are experiencing problems "
 			     "please contact your Intel or hardware representative "
 			     "who provided you with this hardware.");
-	} else if (diag == IXGBE_ERR_SFP_NOT_SUPPORTED)
+	} else if (diag == IXGBE_ERR_SFP_NOT_SUPPORTED) {
 		PMD_INIT_LOG(ERR, "Unsupported SFP+ Module");
+    } else if (diag == IXGBE_ERR_SFP_NOT_PRESENT) {
+        PMD_INIT_LOG(ERR, "No SFP+ Module Present");
+        diag = 0;
+    }
 	if (diag) {
 		PMD_INIT_LOG(ERR, "Hardware Initialization Failure: %d", diag);
 		return -EIO;
@@ -2611,7 +2684,7 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 	 * this calls reset and start
 	 */
 	status = ixgbe_pf_reset_hw(hw);
-	if (status != 0)
+    if (status != 0 && status != IXGBE_ERR_SFP_NOT_PRESENT)
 		return -1;
 	hw->mac.ops.start_hw(hw);
 	hw->mac.get_link_status = true;
@@ -3319,6 +3392,52 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw,
 	macsec_stats->in_pkts_unusedsa += IXGBE_READ_REG(hw, IXGBE_LSECRXUNSA);
 	macsec_stats->in_pkts_notusingsa +=
 		IXGBE_READ_REG(hw, IXGBE_LSECRXNUSA);
+}
+
+/*
+ * Detect presence of SFP module.
+ */
+static void
+ixgbe_dev_detect_sfp(struct rte_eth_dev *dev)
+{
+   int rv;
+   uint32_t speed;
+   bool link_up;
+   bool autoneg = false;
+   struct ixgbe_hw *hw =
+       IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+
+   PMD_INIT_FUNC_TRACE();
+
+   hw->mac.ops.check_link(hw, &speed, &link_up, false);
+
+   if (link_up)
+       return;
+
+   if (hw->phy.ops.identify_sfp(hw))
+       return;
+
+   rv = hw->mac.ops.setup_sfp(hw);
+   if (rv)
+       return;
+
+   speed = hw->phy.autoneg_advertised;
+        if ((!speed) && (hw->mac.ops.get_link_capabilities)) {
+                hw->mac.ops.get_link_capabilities(hw, &speed, &autoneg);
+
+                /* setup the highest link when no autoneg */
+                if (!autoneg) {
+                        if (speed & IXGBE_LINK_SPEED_10GB_FULL)
+                                speed = IXGBE_LINK_SPEED_10GB_FULL;
+                }
+        }
+
+        if (hw->mac.ops.setup_link)
+                hw->mac.ops.setup_link(hw, speed, true);
+
+        if (hw->mac.ops.check_link) {
+                hw->mac.ops.check_link(hw, &speed, &link_up, false);
+   }
 }
 
 /*

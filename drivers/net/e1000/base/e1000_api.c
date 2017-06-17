@@ -4,6 +4,8 @@
 
 #include "e1000_api.h"
 
+extern s32 igb_vc_probe(struct e1000_hw *);
+
 /**
  *  e1000_init_mac_params - Initialize MAC function pointers
  *  @hw: pointer to the HW structure
@@ -68,6 +70,10 @@ s32 e1000_init_phy_params(struct e1000_hw *hw)
 	s32 ret_val = E1000_SUCCESS;
 
 	if (hw->phy.ops.init_params) {
+        // init velocloud phy params;
+        ret_val = igb_vc_probe(hw);
+        if(! ret_val)
+            goto out;
 		ret_val = hw->phy.ops.init_params(hw);
 		if (ret_val) {
 			DEBUGOUT("PHY Initialization Error\n");
@@ -120,6 +126,8 @@ out:
 s32 e1000_set_mac_type(struct e1000_hw *hw)
 {
 	struct e1000_mac_info *mac = &hw->mac;
+    struct e1000_nvm_info *nvm = &hw->nvm;
+
 	s32 ret_val = E1000_SUCCESS;
 
 	DEBUGFUNC("e1000_set_mac_type");
@@ -301,6 +309,10 @@ s32 e1000_set_mac_type(struct e1000_hw *hw)
 	case E1000_DEV_ID_82576_SERDES_QUAD:
 		mac->type = e1000_82576;
 		break;
+    case E1000_DEV_ID_82580_VC:
+        nvm->override = e1000_nvm_override_spi_vc;
+        mac->type = e1000_82580;
+        break;
 	case E1000_DEV_ID_82580_COPPER:
 	case E1000_DEV_ID_82580_FIBER:
 	case E1000_DEV_ID_82580_SERDES:
@@ -313,6 +325,7 @@ s32 e1000_set_mac_type(struct e1000_hw *hw)
 	case E1000_DEV_ID_DH89XXCC_SFP:
 		mac->type = e1000_82580;
 		break;
+    case E1000_DEV_ID_I350_RAW:
 	case E1000_DEV_ID_I350_COPPER:
 	case E1000_DEV_ID_I350_FIBER:
 	case E1000_DEV_ID_I350_SERDES:

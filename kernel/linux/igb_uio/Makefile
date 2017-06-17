@@ -15,8 +15,8 @@ MODULE_PATH = drivers/net/igb_uio
 MODULE_CFLAGS += -I$(SRCDIR) --param max-inline-insns-single=100
 MODULE_CFLAGS += -I$(RTE_OUTPUT)/include
 MODULE_CFLAGS += -Winline -Wall -Werror
+MODULE_CFLAGS += -I$(RTE_SDK)/kernel/linux/missing
 MODULE_CFLAGS += -include $(RTE_OUTPUT)/include/rte_config.h
-
 #
 # all source are stored in SRCS-y
 #

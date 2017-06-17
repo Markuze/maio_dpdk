@@ -1538,9 +1538,12 @@ STATIC s32 ixgbe_supported_sfp_modules_X550em(struct ixgbe_hw *hw, bool *linear)
 	case ixgbe_sfp_type_1g_lha_core1:
 		*linear = false;
 		break;
-	case ixgbe_sfp_type_unknown:
+	// 1g copper SFP support;
 	case ixgbe_sfp_type_1g_cu_core0:
 	case ixgbe_sfp_type_1g_cu_core1:
+		*linear = false;
+		break;
+	case ixgbe_sfp_type_unknown:
 	default:
 		return IXGBE_ERR_SFP_NOT_SUPPORTED;
 	}
@@ -1878,6 +1881,8 @@ s32 ixgbe_get_link_capabilities_X550em(struct ixgbe_hw *hw,
 		    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core1
 		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_lha_core0 ||
 		    hw->phy.sfp_type == ixgbe_sfp_type_1g_lha_core1
+		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core0
+		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core1
 		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core0 ||
 		    hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core1) {
 			*speed = IXGBE_LINK_SPEED_1GB_FULL;

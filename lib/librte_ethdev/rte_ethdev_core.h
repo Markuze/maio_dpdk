@@ -156,6 +156,9 @@ typedef int (*eth_link_update_t)(struct rte_eth_dev *dev,
 				int wait_to_complete);
 /**< @internal Get link speed, duplex mode and state (up/down) of an Ethernet device. */
 
+typedef void (*eth_dev_detect_t)(struct rte_eth_dev *dev);
+/**< @internal Function used to detect a SFP module during runtime. */
+
 typedef int (*eth_stats_get_t)(struct rte_eth_dev *dev,
 				struct rte_eth_stats *igb_stats);
 /**< @internal Get global I/O statistics of an Ethernet device. */
@@ -617,6 +620,7 @@ struct eth_dev_ops {
 	eth_link_update_t          link_update;   /**< Get device link state. */
 	eth_is_removed_t           is_removed;
 	/**< Check if the device was physically removed. */
+	eth_dev_detect_t           dev_detect;    /**<SFP detection. */
 
 	eth_promiscuous_enable_t   promiscuous_enable; /**< Promiscuous ON. */
 	eth_promiscuous_disable_t  promiscuous_disable;/**< Promiscuous OFF. */

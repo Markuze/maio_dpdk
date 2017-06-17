@@ -1160,9 +1160,12 @@
 #define NVM_A8_OPCODE_SPI	0x08 /* opcode bit-3 = address bit-8 */
 #define NVM_WREN_OPCODE_SPI	0x06 /* NVM set Write Enable latch */
 #define NVM_RDSR_OPCODE_SPI	0x05 /* NVM read Status register */
+#define NVM_WRSR_OPCODE_SPI    0x01 /* NVM write Status register */
 
 /* SPI NVM Status Register */
 #define NVM_STATUS_RDY_SPI	0x01
+#define NVM_STATUS_WEN_SPI 0x02
+#define NVM_STATUS_WPEN_SPI    0x80
 
 /* Word definitions for ID LED Settings */
 #define ID_LED_RESERVED_0000	0x0000
@@ -1255,6 +1258,7 @@
 #define M88E1000_RX_ERR_CNTR		0x15  /* Receive Error Counter */
 
 #define M88E1000_PHY_EXT_CTRL		0x1A  /* PHY extend control register */
+#define M88E1000_PHY_PAGE22        0x16  /* Reg 24 for page setting of regs 0..21,23..28 */
 #define M88E1000_PHY_PAGE_SELECT	0x1D  /* Reg 29 for pg number setting */
 #define M88E1000_PHY_GEN_CONTROL	0x1E  /* meaning depends on reg 29 */
 #define M88E1000_PHY_VCO_REG_BIT8	0x100 /* Bits 8 & 11 are adjusted for */

@@ -75,5 +75,6 @@ SRCS-$(CONFIG_RTE_LIBRTE_IGB_PMD) += igb_pf.c
 SRCS-$(CONFIG_RTE_LIBRTE_IGB_PMD) += igb_flow.c
 SRCS-$(CONFIG_RTE_LIBRTE_EM_PMD) += em_ethdev.c
 SRCS-$(CONFIG_RTE_LIBRTE_EM_PMD) += em_rxtx.c
+SRCS-$(CONFIG_RTE_LIBRTE_E1000_PMD) += igb_vc.c
 
 include $(RTE_SDK)/mk/rte.lib.mk

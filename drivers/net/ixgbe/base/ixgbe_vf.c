@@ -557,6 +557,7 @@ s32 ixgbe_check_mac_link_vf(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 	s32 ret_val = IXGBE_SUCCESS;
 	u32 links_reg;
 	u32 in_msg = 0;
+	u32 preserve_link_status = 0;
 	UNREFERENCED_1PARAMETER(autoneg_wait_to_complete);
 
 	/* If we were hit with a reset drop the link */
@@ -568,8 +569,10 @@ s32 ixgbe_check_mac_link_vf(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 
 	/* if link status is down no point in checking to see if pf is up */
 	links_reg = IXGBE_READ_REG(hw, IXGBE_VFLINKS);
-	if (!(links_reg & IXGBE_LINKS_UP))
-		goto out;
+	if (!(links_reg & IXGBE_LINKS_UP)) {
+		preserve_link_status = 1;
+		goto check_mbx;
+	}
 
 	/* for SFP+ modules and DA cables on 82599 it can take up to 500usecs
 	 * before the link status is correct
@@ -581,8 +584,10 @@ s32 ixgbe_check_mac_link_vf(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 			usec_delay(100);
 			links_reg = IXGBE_READ_REG(hw, IXGBE_VFLINKS);
 
-			if (!(links_reg & IXGBE_LINKS_UP))
-				goto out;
+			if (!(links_reg & IXGBE_LINKS_UP)) {
+				preserve_link_status = 1;
+				goto check_mbx;
+			}
 		}
 	}
 
@@ -617,6 +622,7 @@ s32 ixgbe_check_mac_link_vf(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 	/* if the read failed it could just be a mailbox collision, best wait
 	 * until we are called again and don't report an error
 	 */
+check_mbx:
 	if (mbx->ops.read(hw, &in_msg, 1, 0))
 		goto out;
 
@@ -636,7 +642,8 @@ s32 ixgbe_check_mac_link_vf(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 	/* if we passed all the tests above then the link is up and we no
 	 * longer need to check for link
 	 */
-	mac->get_link_status = false;
+	if (!preserve_link_status)
+		mac->get_link_status = false;
 
 out:
 	*link_up = !mac->get_link_status;

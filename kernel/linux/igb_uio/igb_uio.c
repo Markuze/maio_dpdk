@@ -14,8 +14,19 @@
 #include <linux/msi.h>
 #include <linux/version.h>
 #include <linux/slab.h>
+#include <linux/gpio.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+#include <linux/mdio-gpio.h>
+#else
+#include <linux/platform_data/mdio-gpio.h>
+#endif
+#include <linux/delay.h>
+#include <linux/i2c.h>
+#include <linux/cdev.h>
+#include <misc/velocloud.h>
 
 #include <rte_pci_dev_features.h>
+#include <vc_ioctl.h>
 
 #include "compat.h"
 
@@ -32,6 +43,249 @@ struct rte_uio_pci_dev {
 static int wc_activate;
 static char *intr_mode;
 static enum rte_intr_mode igbuio_intr_mode_preferred = RTE_INTR_MODE_MSIX;
+
+
+#ifndef NON_VELOCLOUD_KERNEL
+extern struct mii_bus *vc_mdio_bus;
+extern struct dmi_system_id *vc_dmi;
+
+#define IGB_VC_SFP "sfp"        // sfp i2c driver name;
+
+
+#define EDGE5X0_GPIO_PCA9557_30 70
+#define EDGE5X0_GPIO_RST_SW_A (EDGE5X0_GPIO_PCA9557_30 + 2)
+#define EDGE5X0_GPIO_RST_SW_B (EDGE5X0_GPIO_PCA9557_30 + 3)
+#define EDGE5X0_GPIO_RST_1514 (EDGE5X0_GPIO_PCA9557_30 + 4)
+
+#define IGB_VC_N_BUS_FUNC 4
+
+#define WAN_MAX_DEVS            1
+#define WAN_LINK_MAX_DEVS  2
+
+static int igb_vc5x0_reset_gpio[IGB_VC_N_BUS_FUNC] = {
+        EDGE5X0_GPIO_RST_SW_A,
+        EDGE5X0_GPIO_RST_SW_B,
+        EDGE5X0_GPIO_RST_1514,
+        -1,
+};
+
+enum sfp_i2c_client {
+        SFP_EEPROM = 0,
+        SFP_DMI,
+        N_SFP_CLIENT,
+};
+
+struct vc_wan_pci_addrs {
+   u8 bus;
+   u8 devfn;
+};
+
+struct vc_edge540 {
+   atomic_t ref_count;
+   struct vc_wan_pci_addrs *pci_addrs;
+};
+
+static struct vc_wan_pci_addrs pci_addr[WAN_LINK_MAX_DEVS] = {
+                { 0, PCI_DEVFN(0x14, 2) },
+                { 0, PCI_DEVFN(0x14, 3) },
+};
+
+static struct vc_edge540 vc_hw_edge540 = {
+   .ref_count = { 0 },
+   .pci_addrs = pci_addr,
+};
+
+static struct i2c_client *vc_client[N_SFP_CLIENT];
+
+// sfp i2c data;
+static unsigned short igb_vc_i2c_addrs[] = { 0x50, 0x51, I2C_CLIENT_END };
+//static struct vc_i2c_sfp igb_vc_i2c_sfp;
+
+// detect i2c devices;
+// called for each i2c device before probing, by the i2c core;
+// device addresses are in struct i2c_driver.address_list;
+
+static int
+igb_vc_i2c_detect(struct i2c_client *client, struct i2c_board_info *info)
+{
+   struct i2c_adapter *adapter = client->adapter;
+
+   if( !i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA
+       | I2C_FUNC_SMBUS_WRITE_BYTE)) {
+       pr_err("igb: i2c adaptor does not support required smbus/i2c modes\n");
+       return(-ENODEV);
+   }
+
+   // success;
+
+   strlcpy(info->type, IGB_VC_SFP, I2C_NAME_SIZE);
+   return(0);
+}
+
+// probe sfp cage i2c;
+// called for each i2c device after detecting, by the i2c core;
+// the sfp may not be plugegd in yet, not much to do here;
+
+static int
+igb_vc_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+   //struct vc_i2c_sfp *sfp = &igb_vc_i2c_sfp;
+        //struct pci_dev *pdev = adapter->pdev;
+   int ret = -ENODEV;
+
+   // EEPROM probe;
+   // create sysfs entries for sfp info;
+
+   if(client->addr == igb_vc_i2c_addrs[0]) {
+       vc_client[SFP_EEPROM] = client;
+#if 0
+       ret = sysfs_create_group(&client->dev.kobj, &igb_vc_sfp_group);
+       if(ret < 0)
+           dev_err(&client->dev, "couldn't register sfp sysfs group\n");
+#endif
+   }
+
+   // DMI probe;
+
+   if(client->addr == igb_vc_i2c_addrs[1]) {
+       vc_client[SFP_DMI] = client;
+       ret = 0;
+   }
+
+   return(ret);
+}
+
+// remove driver;
+
+static int
+igb_vc_i2c_remove(struct i2c_client *client)
+{
+   //struct vc_i2c_sfp *sfp = &igb_vc_i2c_sfp;
+
+   // remove sysfs entries;
+#if 0
+   sysfs_remove_group(&client->dev.kobj, &igb_vc_sfp_group);
+#endif
+   vc_client[SFP_EEPROM] = NULL;
+   vc_client[SFP_DMI] = NULL;
+   return(0);
+}
+
+static const struct i2c_device_id igb_vc_i2c_id[] = {
+   { IGB_VC_SFP, 0 },
+   {},
+};
+
+static struct i2c_driver igb_vc_i2c_driver = {
+   .class = I2C_CLASS_HWMON,
+   .driver = {
+       .name = IGB_VC_SFP,
+   },
+   .address_list = igb_vc_i2c_addrs,
+   .probe = igb_vc_i2c_probe,
+   .remove = igb_vc_i2c_remove,
+   .id_table = igb_vc_i2c_id,
+   .detect = igb_vc_i2c_detect,
+};
+
+
+static struct class *igb_uio_class;
+struct cdev cdev;
+static dev_t devid;
+static struct device *cldev;
+static int wan_major;
+
+static s32
+igb_uio_open(struct inode *inode, struct file *file)
+{
+        u32 minor_number;
+
+        minor_number = iminor(inode);
+        if (minor_number)
+            return -ENODEV;
+
+        return 0;
+}
+
+static long
+igb_uio_ioctl(struct file *file, u32 cmd, unsigned long arg)
+{
+   s32 rv = 0;
+   struct mdio_fop fop;
+   struct i2c_client *client;
+   int gpio;
+
+   if (unlikely(!vc_mdio_bus))
+       return (rv);
+
+   if (copy_from_user(&fop, (struct mdio_fop *)arg,
+               sizeof(struct mdio_fop)))
+                return -EFAULT;
+
+   switch (cmd) {
+
+        case MDIOBB_READ:
+       rv = mdiobus_read(vc_mdio_bus, fop.addr, fop.reg);
+       fop.data = rv;
+       if (rv < 0)
+           printk("MDIO READ ERROR %d\n", rv);
+       else
+           rv = 0;
+
+       copy_to_user((struct mdio_fop *)arg, &fop,
+                   sizeof(struct mdio_fop));
+
+       break;
+        case MDIOBB_WRITE:
+       rv = mdiobus_write(vc_mdio_bus, fop.addr, fop.reg, fop.data);
+       if (rv < 0)
+           printk("MDIO WRITE ERROR %d\n", rv);
+       else
+           rv = 0;
+                break;
+   case GPIO_RESET:
+       gpio = igb_vc5x0_reset_gpio[fop.addr];
+       if(gpio >= 0) {
+           printk("resetting func %d sw/phy\n", fop.addr);
+           gpio_set_value(gpio, 0);
+           usleep_range(100, 1000);
+           gpio_set_value(gpio, 1);
+       }
+       break;
+   case I2C_OPEN:
+       i2c_add_driver(&igb_vc_i2c_driver);
+       break;
+   case I2C_READ_BYTE_OP:
+       client = vc_client[SFP_EEPROM];
+       if (!client)
+           return(-ENODEV);
+       else {
+           if (copy_from_user(&fop, (struct mdio_fop *)arg, sizeof(fop)))
+                       return -EFAULT;
+           fop.data = i2c_smbus_read_byte_data(client, fop.reg);
+           copy_to_user((struct mdio_fop *)arg, &fop, sizeof(fop));
+       }
+   case I2C_CLOSE:
+       i2c_del_driver(&igb_vc_i2c_driver);
+       break;
+   default:
+       rv = -EINVAL;
+       break;
+        }
+        return rv;
+}
+
+static const struct file_operations igb_uio_fops = {
+   .owner          = THIS_MODULE,
+   .unlocked_ioctl = igb_uio_ioctl,
+   .open           = igb_uio_open,
+   .release        = NULL,
+   .llseek         = noop_llseek,
+};
+
+#endif
+
+
 /* sriov sysfs */
 static ssize_t
 show_max_vfs(struct device *dev, struct device_attribute *attr,
@@ -467,6 +721,11 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	dma_addr_t map_dma_addr;
 	void *map_addr;
 	int err;
+#ifndef NON_VELOCLOUD_KERNEL
+	extern struct dmi_system_id *vc_dmi;
+	unsigned long vc_id;
+	int i;
+#endif
 
 #ifdef HAVE_PCI_IS_BRIDGE_API
 	if (pci_is_bridge(dev)) {
@@ -552,6 +811,78 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 			 (unsigned long long)map_dma_addr, map_addr);
 	}
 
+#ifndef NON_VELOCLOUD_KERNEL
+    /* Stock kernel without VC support */
+    if (! vc_dmi)
+        return err;
+
+   vc_id = (unsigned long)vc_dmi->driver_data;
+
+    switch(vc_id) {
+	 case VC_EDGE520:
+	 case VC_EDGE520B:
+         case VC_EDGE540:
+         case VC_EDGE540B:
+                 break;
+         default:
+                 return(err);
+         }
+
+    for (i = 0; i < WAN_LINK_MAX_DEVS; i++) {
+        if (dev->bus->number == vc_hw_edge540.pci_addrs[i].bus &&
+            dev->devfn == vc_hw_edge540.pci_addrs[i].devfn) {
+            break;
+        }
+    }
+
+    if (i == WAN_LINK_MAX_DEVS)
+        return err;
+    else {
+        if (atomic_read (&vc_hw_edge540.ref_count) == 0) {
+            atomic_inc(&vc_hw_edge540.ref_count);
+            dev_info(&dev->dev, "wan link: %s\n", vc_dmi->ident);
+        } else {
+            atomic_inc(&vc_hw_edge540.ref_count);
+            return (err);
+        }
+    }
+
+    igb_uio_class = class_create(THIS_MODULE, "wan");
+    if (IS_ERR(igb_uio_class)) {
+                 err = PTR_ERR(igb_uio_class);
+        dev_err(&dev->dev, "Cannot create WAN class\n");
+        goto fail_remove_group;
+    }
+
+    err = alloc_chrdev_region(&devid, 0, WAN_MAX_DEVS, "wan");
+    if (err) {
+         class_destroy(igb_uio_class);
+        goto fail_remove_group;
+    }
+
+    wan_major = MAJOR(devid);
+
+    cldev = device_create(igb_uio_class, NULL, MKDEV(wan_major, 0), NULL, "wan");
+    if (IS_ERR(cldev)) {
+        err = PTR_ERR(cldev);
+        unregister_chrdev_region(devid, WAN_MAX_DEVS);
+        class_destroy(igb_uio_class);
+        dev_err(&dev->dev, "Unable to create device class wan\n");
+        goto fail_remove_group;
+    }
+
+    cdev_init(&cdev, &igb_uio_fops);
+
+    err = cdev_add(&cdev, devid, 1);
+    if (err) {
+       device_destroy(igb_uio_class, MKDEV(wan_major, 0));
+       class_destroy(igb_uio_class);
+       unregister_chrdev_region(devid, WAN_MAX_DEVS);
+       dev_err(&dev->dev, "Unable to add device node 'wan'\n");
+    }
+
+#endif
+
 	return 0;
 
 fail_remove_group:
@@ -569,6 +900,10 @@ static void
 igbuio_pci_remove(struct pci_dev *dev)
 {
 	struct rte_uio_pci_dev *udev = pci_get_drvdata(dev);
+#ifndef NON_VELOCLOUD_KERNEL
+    int i;
+    unsigned long vc_id;
+#endif
 
 	igbuio_pci_release(&udev->info, NULL);
 
@@ -578,6 +913,44 @@ igbuio_pci_remove(struct pci_dev *dev)
 	pci_disable_device(dev);
 	pci_set_drvdata(dev, NULL);
 	kfree(udev);
+
+#ifndef NON_VELOCLOUD_KERNEL
+    /* Stock kernel without VC support */
+    if (! vc_dmi)
+        return;
+
+    vc_id = (unsigned long)vc_dmi->driver_data;
+
+    switch(vc_id) {
+	 case VC_EDGE520:
+	 case VC_EDGE520B:
+         case VC_EDGE540:
+         case VC_EDGE540B:
+                 break;
+         default:
+                 return;
+    }
+
+    for (i = 0; i < WAN_LINK_MAX_DEVS; i++) {
+        if (dev->bus->number == vc_hw_edge540.pci_addrs[i].bus &&
+            dev->devfn == vc_hw_edge540.pci_addrs[i].devfn) {
+            break;
+        }
+    }
+
+    if (i == WAN_LINK_MAX_DEVS)
+        return;
+    else {
+        atomic_dec(&vc_hw_edge540.ref_count);
+
+        if (atomic_read (&vc_hw_edge540.ref_count) == 0) {
+            cdev_del(&cdev);
+            device_destroy(igb_uio_class, MKDEV(wan_major, 0));
+            class_destroy(igb_uio_class);
+            unregister_chrdev_region(devid, WAN_MAX_DEVS);
+        }
+    }
+#endif //NON_VELOCLOUD_KERNEL
 }
 
 static int

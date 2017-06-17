@@ -1729,6 +1729,19 @@ rte_eth_dev_close(uint16_t port_id)
 	dev->data->tx_queues = NULL;
 }
 
+void
+rte_eth_dev_detect(uint8_t port_id)
+{
+	struct rte_eth_dev *dev;
+
+	RTE_ETH_VALID_PORTID_OR_RET(port_id);
+
+	dev = &rte_eth_devices[port_id];
+
+	RTE_FUNC_PTR_OR_RET(*dev->dev_ops->dev_detect);
+	(*dev->dev_ops->dev_detect)(dev);
+}
+
 int
 rte_eth_dev_reset(uint16_t port_id)
 {

@@ -31,6 +31,7 @@ struct e1000_hw;
 #define E1000_DEV_ID_82546EB_COPPER		0x1010
 #define E1000_DEV_ID_82546EB_FIBER		0x1012
 #define E1000_DEV_ID_82546EB_QUAD_COPPER	0x101D
+
 #define E1000_DEV_ID_82546GB_COPPER		0x1079
 #define E1000_DEV_ID_82546GB_FIBER		0x107A
 #define E1000_DEV_ID_82546GB_SERDES		0x107B
@@ -135,6 +136,7 @@ struct e1000_hw;
 #define E1000_DEV_ID_82575EB_COPPER		0x10A7
 #define E1000_DEV_ID_82575EB_FIBER_SERDES	0x10A9
 #define E1000_DEV_ID_82575GB_QUAD_COPPER	0x10D6
+#define E1000_DEV_ID_82580_VC          0x1509 /* XXX PATCH */
 #define E1000_DEV_ID_82580_COPPER		0x150E
 #define E1000_DEV_ID_82580_FIBER		0x150F
 #define E1000_DEV_ID_82580_SERDES		0x1510
@@ -162,6 +164,8 @@ struct e1000_hw;
 #define E1000_DEV_ID_DH89XXCC_SERDES		0x043A
 #define E1000_DEV_ID_DH89XXCC_BACKPLANE		0x043C
 #define E1000_DEV_ID_DH89XXCC_SFP		0x0440
+#define E1000_DEV_ID_I350_RAW          0x151f /* XXX PATCH */
+
 
 #define E1000_REVISION_0	0
 #define E1000_REVISION_1	1
@@ -178,6 +182,9 @@ struct e1000_hw;
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN1	3
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN2	6
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN3	9
+#define VC_ID 0x5663    // "Vc"
+#define VC_ID_EDGE500 0x6535 // "e5" - edge500;
+#define VC_ID_EDGE5X0 0x3558 // "5X" - edge520/edge540;
 
 enum e1000_mac_type {
 	e1000_undefined = 0,
@@ -224,6 +231,8 @@ enum e1000_media_type {
 	e1000_media_type_copper = 1,
 	e1000_media_type_fiber = 2,
 	e1000_media_type_internal_serdes = 3,
+    e1000_media_type_switch = 4, /* XXX PATCH */
+    e1000_media_type_sfp = 5, /* XXX PATCH */
 	e1000_num_media_types
 };
 
@@ -241,6 +250,7 @@ enum e1000_nvm_override {
 	e1000_nvm_override_none = 0,
 	e1000_nvm_override_spi_small,
 	e1000_nvm_override_spi_large,
+    e1000_nvm_override_spi_vc, /* XXX PATCH */
 	e1000_nvm_override_microwire_small,
 	e1000_nvm_override_microwire_large
 };
@@ -262,6 +272,32 @@ enum e1000_phy_type {
 	e1000_phy_82580,
 	e1000_phy_vf,
 	e1000_phy_i210,
+    e1000_phy_m88sw, /* XXX PATCH */
+};
+
+enum e1000_phy_port { /* XXX PATCH */
+   e1000_port_cpu = 0,
+   e1000_port_sgmii,
+   e1000_port_phy,
+   e1000_n_phy_ports,
+};
+
+// switch-as-phy data;
+// controls copper side port;
+
+struct e1000_swphy { /* XXX PATCH */
+   u8 autoneg;
+   u8 duplex;
+   u16 speed;
+   u32 autoneg_supported;
+   u32 autoneg_advertised;
+};
+
+enum e1000_vcid { /* XXX PATCH */
+   e1000_non_vc = 0,
+   e1000_vc500,
+   e1000_vc5x0,
+   e1000_vcid_max,
 };
 
 enum e1000_bus_type {
@@ -816,6 +852,7 @@ struct e1000_phy_info {
 	u16 min_cable_length;
 
 	u8 mdix;
+    u8 ports[e1000_n_phy_ports]; /* XXX PATCH */
 
 	bool disable_polarity_correction;
 	bool is_mdix;
@@ -981,6 +1018,7 @@ struct e1000_hw {
 	struct e1000_bus_info  bus;
 	struct e1000_mbx_info mbx;
 	struct e1000_host_mng_dhcp_cookie mng_cookie;
+    struct e1000_swphy swphy; /* XXX PATCH */
 
 	union {
 		struct e1000_dev_spec_82541 _82541;
@@ -999,6 +1037,7 @@ struct e1000_hw {
 	u16 vendor_id;
 
 	u8  revision_id;
+    u8 vc_id; /* XXX PATCH */
 };
 
 #include "e1000_82541.h"

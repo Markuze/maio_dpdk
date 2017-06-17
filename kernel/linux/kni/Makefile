@@ -13,6 +13,7 @@ MODULE = rte_kni
 #
 MODULE_CFLAGS += -I$(SRCDIR) --param max-inline-insns-single=50
 MODULE_CFLAGS += -I$(RTE_OUTPUT)/include
+MODULE_CFLAGS += -I$(RTE_SDK)/kernel/linux/missing
 MODULE_CFLAGS += -include $(RTE_OUTPUT)/include/rte_config.h
 MODULE_CFLAGS += -Wall -Werror
 

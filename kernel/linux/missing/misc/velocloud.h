@@ -1,0 +1,4 @@
+#ifndef MISSING_VELOCLOUD_H
+#define MISSING_VELOCLOUD_H
+#define NON_VELOCLOUD_KERNEL
+#endif

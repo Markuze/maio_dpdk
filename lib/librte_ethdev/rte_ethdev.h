@@ -2169,6 +2169,16 @@ void rte_eth_dev_close(uint16_t port_id);
 int rte_eth_dev_reset(uint16_t port_id);
 
 /**
+ * Detect the presence of a SFP module.
+ *
+ * @param port_id
+ *   The port identifier of the Ethernet device.
+ */
+
+__rte_experimental
+void rte_eth_dev_detect(uint8_t port_id);
+
+/**
  * Enable receipt in promiscuous mode for an Ethernet device.
  *
  * @param port_id

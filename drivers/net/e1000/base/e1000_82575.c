@@ -21,19 +21,19 @@ STATIC s32  e1000_acquire_phy_82575(struct e1000_hw *hw);
 STATIC void e1000_release_phy_82575(struct e1000_hw *hw);
 STATIC s32  e1000_acquire_nvm_82575(struct e1000_hw *hw);
 STATIC void e1000_release_nvm_82575(struct e1000_hw *hw);
-STATIC s32  e1000_check_for_link_82575(struct e1000_hw *hw);
+s32  e1000_check_for_link_82575(struct e1000_hw *hw);
 STATIC s32  e1000_check_for_link_media_swap(struct e1000_hw *hw);
 STATIC s32  e1000_get_cfg_done_82575(struct e1000_hw *hw);
-STATIC s32  e1000_get_link_up_info_82575(struct e1000_hw *hw, u16 *speed,
+s32  e1000_get_link_up_info_82575(struct e1000_hw *hw, u16 *speed,
 					 u16 *duplex);
-STATIC s32  e1000_phy_hw_reset_sgmii_82575(struct e1000_hw *hw);
+s32  e1000_phy_hw_reset_sgmii_82575(struct e1000_hw *hw);
 STATIC s32  e1000_read_phy_reg_sgmii_82575(struct e1000_hw *hw, u32 offset,
 					   u16 *data);
 STATIC s32  e1000_reset_hw_82575(struct e1000_hw *hw);
 STATIC s32  e1000_reset_hw_82580(struct e1000_hw *hw);
-STATIC s32  e1000_read_phy_reg_82580(struct e1000_hw *hw,
+s32  e1000_read_phy_reg_82580(struct e1000_hw *hw,
 				     u32 offset, u16 *data);
-STATIC s32  e1000_write_phy_reg_82580(struct e1000_hw *hw,
+s32  e1000_write_phy_reg_82580(struct e1000_hw *hw,
 				      u32 offset, u16 data);
 STATIC s32  e1000_set_d0_lplu_state_82580(struct e1000_hw *hw,
 					  bool active);
@@ -41,8 +41,8 @@ STATIC s32  e1000_set_d3_lplu_state_82580(struct e1000_hw *hw,
 					  bool active);
 STATIC s32  e1000_set_d0_lplu_state_82575(struct e1000_hw *hw,
 					  bool active);
-STATIC s32  e1000_setup_copper_link_82575(struct e1000_hw *hw);
-STATIC s32  e1000_setup_serdes_link_82575(struct e1000_hw *hw);
+s32  e1000_setup_copper_link_82575(struct e1000_hw *hw);
+s32  e1000_setup_serdes_link_82575(struct e1000_hw *hw);
 STATIC s32  e1000_get_media_type_82575(struct e1000_hw *hw);
 STATIC s32  e1000_set_sfp_media_type_82575(struct e1000_hw *hw);
 STATIC s32  e1000_valid_led_default_82575(struct e1000_hw *hw, u16 *data);
@@ -50,11 +50,13 @@ STATIC s32  e1000_write_phy_reg_sgmii_82575(struct e1000_hw *hw,
 					    u32 offset, u16 data);
 STATIC void e1000_clear_hw_cntrs_82575(struct e1000_hw *hw);
 STATIC s32  e1000_acquire_swfw_sync_82575(struct e1000_hw *hw, u16 mask);
-STATIC s32  e1000_get_pcs_speed_and_duplex_82575(struct e1000_hw *hw,
+s32  e1000_get_pcs_speed_and_duplex_82575(struct e1000_hw *hw,
 						 u16 *speed, u16 *duplex);
 STATIC s32  e1000_get_phy_id_82575(struct e1000_hw *hw);
 STATIC void e1000_release_swfw_sync_82575(struct e1000_hw *hw, u16 mask);
-STATIC bool e1000_sgmii_active_82575(struct e1000_hw *hw);
+bool e1000_sgmii_active_82575(struct e1000_hw *hw);
+bool e1000_sgmii_uses_mdio_82575(struct e1000_hw *hw);
+
 STATIC s32  e1000_reset_init_script_82575(struct e1000_hw *hw);
 STATIC s32  e1000_read_mac_addr_82575(struct e1000_hw *hw);
 STATIC void e1000_config_collision_dist_82575(struct e1000_hw *hw);
@@ -99,7 +101,7 @@ STATIC const u16 e1000_82580_rxpbs_table[] = {
  *  Called to determine if the I2C pins are being used for I2C or as an
  *  external MDIO interface since the two options are mutually exclusive.
  **/
-STATIC bool e1000_sgmii_uses_mdio_82575(struct e1000_hw *hw)
+bool e1000_sgmii_uses_mdio_82575(struct e1000_hw *hw)
 {
 	u32 reg = 0;
 	bool ext_mdio = false;
@@ -242,11 +244,13 @@ STATIC s32 e1000_init_phy_params_82575(struct e1000_hw *hw)
 				hw->mac.ops.check_for_link =
 						e1000_check_for_link_media_swap;
 		}
-		if (phy->id == M88E1512_E_PHY_ID) {
+
+		if (hw->vc_id != e1000_vc5x0 && phy->id == M88E1512_E_PHY_ID) {
 			ret_val = e1000_initialize_M88E1512_phy(hw);
 			if (ret_val)
 				goto out;
 		}
+
 		if (phy->id == M88E1543_E_PHY_ID) {
 			ret_val = e1000_initialize_M88E1543_phy(hw);
 			if (ret_val)
@@ -327,6 +331,12 @@ s32 e1000_init_nvm_params_82575(struct e1000_hw *hw)
 		nvm->delay_usec = 1;
 
 		switch (nvm->override) {
+        case e1000_nvm_override_spi_vc:
+            nvm->page_size = 32;
+            nvm->address_bits = 16;
+            nvm->word_size = 256*1024/16;
+            break;
+
 		case e1000_nvm_override_spi_large:
 			nvm->page_size = 32;
 			nvm->address_bits = 16;
@@ -732,7 +742,7 @@ out:
  *
  *  Resets the PHY using the serial gigabit media independent interface.
  **/
-STATIC s32 e1000_phy_hw_reset_sgmii_82575(struct e1000_hw *hw)
+s32 e1000_phy_hw_reset_sgmii_82575(struct e1000_hw *hw)
 {
 	s32 ret_val = E1000_SUCCESS;
 	struct e1000_phy_info *phy = &hw->phy;
@@ -761,8 +771,9 @@ STATIC s32 e1000_phy_hw_reset_sgmii_82575(struct e1000_hw *hw)
 	if (ret_val)
 		goto out;
 
-	if (phy->id == M88E1512_E_PHY_ID)
+	if (hw->vc_id != e1000_vc5x0 && phy->id == M88E1512_E_PHY_ID)
 		ret_val = e1000_initialize_M88E1512_phy(hw);
+
 out:
 	return ret_val;
 }
@@ -1140,7 +1151,7 @@ STATIC s32 e1000_get_cfg_done_82575(struct e1000_hw *hw)
  *  interface, use PCS to retrieve the link speed and duplex information.
  *  Otherwise, use the generic function to get the link speed and duplex info.
  **/
-STATIC s32 e1000_get_link_up_info_82575(struct e1000_hw *hw, u16 *speed,
+s32 e1000_get_link_up_info_82575(struct e1000_hw *hw, u16 *speed,
 					u16 *duplex)
 {
 	s32 ret_val;
@@ -1164,7 +1175,7 @@ STATIC s32 e1000_get_link_up_info_82575(struct e1000_hw *hw, u16 *speed,
  *  If sgmii is enabled, then use the pcs register to determine link, otherwise
  *  use the generic interface for determining link.
  **/
-STATIC s32 e1000_check_for_link_82575(struct e1000_hw *hw)
+s32 e1000_check_for_link_82575(struct e1000_hw *hw)
 {
 	s32 ret_val;
 	u16 speed, duplex;
@@ -1297,7 +1308,7 @@ STATIC void e1000_power_up_serdes_link_82575(struct e1000_hw *hw)
  *  Using the physical coding sub-layer (PCS), retrieve the current speed and
  *  duplex, then store the values in the pointers provided.
  **/
-STATIC s32 e1000_get_pcs_speed_and_duplex_82575(struct e1000_hw *hw,
+s32 e1000_get_pcs_speed_and_duplex_82575(struct e1000_hw *hw,
 						u16 *speed, u16 *duplex)
 {
 	struct e1000_mac_info *mac = &hw->mac;
@@ -1517,7 +1528,7 @@ s32 e1000_init_hw_82575(struct e1000_hw *hw)
  *  for link, once link is established calls to configure collision distance
  *  and flow control are called.
  **/
-STATIC s32 e1000_setup_copper_link_82575(struct e1000_hw *hw)
+s32 e1000_setup_copper_link_82575(struct e1000_hw *hw)
 {
 	u32 ctrl;
 	s32 ret_val;
@@ -1548,14 +1559,20 @@ STATIC s32 e1000_setup_copper_link_82575(struct e1000_hw *hw)
 	if (ret_val)
 		goto out;
 
-	if (e1000_sgmii_active_82575(hw)) {
-		/* allow time for SFP cage time to power up phy */
-		msec_delay(300);
+	/* SFP cage on 5x0 is wired powered, thus any SFP module inserted will
+	 * immediately be powered on as well.  Do not delay waiting for module
+	 * to power on if we are on a 5x0 platform.
+	 */
+	if (hw->vc_id != e1000_vc5x0) {
+		if (e1000_sgmii_active_82575(hw)) {
+			/* allow time for SFP cage time to power up phy */
+			msec_delay(300);
 
-		ret_val = hw->phy.ops.reset(hw);
-		if (ret_val) {
-			DEBUGOUT("Error resetting the PHY.\n");
-			goto out;
+			ret_val = hw->phy.ops.reset(hw);
+			if (ret_val) {
+				DEBUGOUT("Error resetting the PHY.\n");
+				goto out;
+			}
 		}
 	}
 	switch (hw->phy.type) {
@@ -1605,7 +1622,7 @@ out:
  *  interface (sgmii), or serdes fiber is being used.  Configures the link
  *  for auto-negotiation or forces speed/duplex.
  **/
-STATIC s32 e1000_setup_serdes_link_82575(struct e1000_hw *hw)
+s32 e1000_setup_serdes_link_82575(struct e1000_hw *hw)
 {
 	u32 ctrl_ext, ctrl_reg, reg, anadv_reg;
 	bool pcs_autoneg;
@@ -1731,6 +1748,10 @@ STATIC s32 e1000_setup_serdes_link_82575(struct e1000_hw *hw)
 
 	E1000_WRITE_REG(hw, E1000_PCS_LCTL, reg);
 
+    reg = E1000_READ_REG(hw, E1000_PCS_LSTAT);
+
+    DEBUGOUT1("SGMII status:PCS_LSTAT=0x%08X\n", reg);
+
 	if (!pcs_autoneg && !e1000_sgmii_active_82575(hw))
 		e1000_force_mac_fc_generic(hw);
 
@@ -1849,7 +1870,20 @@ STATIC s32 e1000_set_sfp_media_type_82575(struct e1000_hw *hw)
 			&tranceiver_type);
 		if (ret_val == E1000_SUCCESS)
 			break;
-		msec_delay(100);
+
+		/* If a I2C read does not start, one condition is the device is
+		 * not there and is more likely the case than an SFP module simply
+		 * "not responding." We assume it is not there and bail without
+		 * continuing to delay.
+		 *
+		 * Only in the case of an I2C error do we continue to re-read
+		 * on an I2C transaction, and even that can mean a problem with
+		 * device timing.
+		 */
+		if (ret_val == E1000_ERR_PHY)
+			msec_delay(100);
+		if (ret_val == E1000_ERR_I2C)
+			break;
 		timeout--;
 	}
 	if (ret_val != E1000_SUCCESS)
@@ -1931,7 +1965,7 @@ out:
  *  which can be enabled for use in the embedded applications.  Simply
  *  return the current state of the sgmii interface.
  **/
-STATIC bool e1000_sgmii_active_82575(struct e1000_hw *hw)
+bool e1000_sgmii_active_82575(struct e1000_hw *hw)
 {
 	struct e1000_dev_spec_82575 *dev_spec = &hw->dev_spec._82575;
 	return dev_spec->sgmii_active;
@@ -2342,7 +2376,7 @@ void e1000_vmdq_set_replication_pf(struct e1000_hw *hw, bool enable)
  *  Reads the MDI control register in the PHY at offset and stores the
  *  information read to data.
  **/
-STATIC s32 e1000_read_phy_reg_82580(struct e1000_hw *hw, u32 offset, u16 *data)
+s32 e1000_read_phy_reg_82580(struct e1000_hw *hw, u32 offset, u16 *data)
 {
 	s32 ret_val;
 
@@ -2368,7 +2402,7 @@ out:
  *
  *  Writes data to MDI control register in the PHY at offset.
  **/
-STATIC s32 e1000_write_phy_reg_82580(struct e1000_hw *hw, u32 offset, u16 data)
+s32 e1000_write_phy_reg_82580(struct e1000_hw *hw, u32 offset, u16 data)
 {
 	s32 ret_val;
 
