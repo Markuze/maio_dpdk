@@ -112,6 +112,8 @@ kni_net_process_request(struct kni_dev *kni, struct rte_kni_request *req)
 	if (!kni || !req) {
 		pr_err("No kni instance or request\n");
 		return -EINVAL;
+	} else {
+		return 0;
 	}
 
 	mutex_lock(&kni->sync_lock);
@@ -157,6 +159,10 @@ kni_net_open(struct net_device *dev)
 	struct rte_kni_request req;
 	struct kni_dev *kni = netdev_priv(dev);
 
+	if (kni->kni_released) {
+		return 0;
+	}
+
 	netif_start_queue(dev);
 	if (kni_dflt_carrier == 1)
 		netif_carrier_on(dev);
@@ -179,6 +185,10 @@ kni_net_release(struct net_device *dev)
 	int ret;
 	struct rte_kni_request req;
 	struct kni_dev *kni = netdev_priv(dev);
+
+	if (kni->kni_released) {
+		return -EAGAIN;
+	}
 
 	netif_stop_queue(dev); /* can't transmit any more */
 	netif_carrier_off(dev);
@@ -272,6 +282,10 @@ kni_net_tx(struct sk_buff *skb, struct net_device *dev)
 	struct rte_kni_mbuf *pkt_kva = NULL;
 	void *pkt_pa = NULL;
 	void *pkt_va = NULL;
+
+	if (kni->kni_released) {
+		goto drop;
+	}
 
 	/* save the timestamp */
 #ifdef HAVE_TRANS_START_HELPER
@@ -613,6 +627,10 @@ kni_net_rx_lo_fifo_skb(struct kni_dev *kni)
 void
 kni_net_rx(struct kni_dev *kni)
 {
+	if (kni->kni_released) {
+		return;
+	}
+
 	/**
 	 * It doesn't need to check if it is NULL pointer,
 	 * as it has a default value
@@ -631,6 +649,12 @@ static void
 kni_net_tx_timeout(struct net_device *dev)
 #endif
 {
+	struct kni_dev *kni = netdev_priv(dev);
+
+	if (kni->kni_released) {
+		return;
+	}
+
 	pr_debug("Transmit timeout at %ld, latency %ld\n", jiffies,
 			jiffies - dev_trans_start(dev));
 

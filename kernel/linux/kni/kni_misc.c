@@ -20,6 +20,7 @@
 
 #include "compat.h"
 #include "kni_dev.h"
+#include "rte_version.h"
 
 MODULE_VERSION(KNI_VERSION);
 MODULE_LICENSE("Dual BSD/GPL");
@@ -93,9 +94,22 @@ kni_init_net(struct net *net)
 static void __net_exit
 kni_exit_net(struct net *net)
 {
-	struct kni_net *knet __maybe_unused;
+	struct kni_net *knet = net_generic(net, kni_net_id);
+	struct kni_dev *dev, *n;
 
-	knet = net_generic(net, kni_net_id);
+	/*
+	 * Remove all the persistent KNI interfaces.
+	 */
+	down_write(&knet->kni_list_lock);
+	list_for_each_entry_safe(dev, n, &knet->kni_list_head, list) {
+		if (dev->net_dev) {
+			unregister_netdev(dev->net_dev);
+			free_netdev(dev->net_dev);
+		}
+		list_del(&dev->list);
+	}
+	up_write(&knet->kni_list_lock);
+
 	mutex_destroy(&knet->kni_kthread_lock);
 
 #ifndef HAVE_SIMPLIFIED_PERNET_OPERATIONS
@@ -175,12 +189,12 @@ kni_open(struct inode *inode, struct file *file)
 }
 
 static int
-kni_dev_remove(struct kni_dev *dev)
+kni_dev_remove(struct kni_dev *dev, int netdev_remove)
 {
 	if (!dev)
 		return -ENODEV;
 
-	if (dev->net_dev) {
+	if (dev->net_dev && netdev_remove) {
 		unregister_netdev(dev->net_dev);
 		free_netdev(dev->net_dev);
 	}
@@ -216,8 +230,12 @@ kni_release(struct inode *inode, struct file *file)
 			dev->pthread = NULL;
 		}
 
-		kni_dev_remove(dev);
-		list_del(&dev->list);
+		kni_dev_remove(dev, !dev->netdev_persist);
+		if (!dev->netdev_persist) {
+			list_del(&dev->list);
+		} else {
+			dev->kni_released = 1;
+		}
 	}
 	up_write(&knet->kni_list_lock);
 
@@ -256,7 +274,7 @@ kni_run_thread(struct kni_net *knet, struct kni_dev *kni, uint8_t force_bind)
 		kni->pthread = kthread_create(kni_thread_multiple,
 			(void *)kni, "kni_%s", kni->name);
 		if (IS_ERR(kni->pthread)) {
-			kni_dev_remove(kni);
+			kni_dev_remove(kni, 1);
 			return -ECANCELED;
 		}
 
@@ -271,7 +289,7 @@ kni_run_thread(struct kni_net *knet, struct kni_dev *kni, uint8_t force_bind)
 				(void *)knet, "kni_single");
 			if (IS_ERR(knet->kni_kthread)) {
 				mutex_unlock(&knet->kni_kthread_lock);
-				kni_dev_remove(kni);
+				kni_dev_remove(kni, 1);
 				return -ECANCELED;
 			}
 
@@ -295,6 +313,7 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 	struct rte_kni_device_info dev_info;
 	struct net_device *net_dev = NULL;
 	struct kni_dev *kni, *dev, *n;
+	int kni_exists = 0;
 
 	pr_info("Creating kni...\n");
 	/* Check the buffer size, to avoid warning */
@@ -302,8 +321,15 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 		return -EINVAL;
 
 	/* Copy kni info from user space */
-	if (copy_from_user(&dev_info, (void *)ioctl_param, sizeof(dev_info)))
-		return -EFAULT;
+	ret = copy_from_user(&dev_info, (void *)ioctl_param, sizeof(dev_info));
+	if (ret) {
+		pr_err("copy_from_user in kni_ioctl_create");
+		return -EIO;
+	}
+	if (dev_info.rte_version != RTE_VERSION) {
+		pr_err("kni version mismatch %x - %x", dev_info.rte_version, RTE_VERSION);
+		return -EINVAL;
+	}
 
 	/* Check if name is zero-ended */
 	if (strnlen(dev_info.name, sizeof(dev_info.name)) == sizeof(dev_info.name)) {
@@ -323,25 +349,41 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 	down_read(&knet->kni_list_lock);
 	list_for_each_entry_safe(dev, n, &knet->kni_list_head, list) {
 		if (kni_check_param(dev, &dev_info) < 0) {
-			up_read(&knet->kni_list_lock);
-			return -EINVAL;
+			kni = dev;
+			kni_exists = 1;
+			break;
 		}
 	}
 	up_read(&knet->kni_list_lock);
 
-	net_dev = alloc_netdev(sizeof(struct kni_dev), dev_info.name,
+	if (kni_exists && !dev_info.persist_on_close) {
+		return -EINVAL;
+	}
+
+	if (!kni_exists) {
+		net_dev = alloc_netdev(sizeof(struct kni_dev), dev_info.name,
 #ifdef NET_NAME_USER
-							NET_NAME_USER,
+				       NET_NAME_USER,
 #endif
-							kni_net_init);
-	if (net_dev == NULL) {
-		pr_err("error allocating device \"%s\"\n", dev_info.name);
-		return -EBUSY;
+				       kni_net_init);
+		if (net_dev == NULL) {
+			pr_err("error allocating device \"%s\"\n", dev_info.name);
+			return -EBUSY;
+		}
+	} else {
+		net_dev = kni->net_dev;
 	}
 
 	dev_net_set(net_dev, net);
 
-	kni = netdev_priv(net_dev);
+	if (!kni_exists) {
+		kni = netdev_priv(net_dev);
+	}
+	if (dev_info.persist_on_close) {
+		kni->netdev_persist = 1;
+	} else {
+		kni->netdev_persist = 0;
+	}
 
 	kni->net_dev = net_dev;
 	kni->core_id = dev_info.core_id;
@@ -395,16 +437,6 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 		(unsigned long long) dev_info.resp_phys, kni->resp_q);
 	pr_debug("mbuf_size:    %u\n", kni->mbuf_size);
 
-	/* if user has provided a valid mac address */
-	if (is_valid_ether_addr(dev_info.mac_addr))
-		memcpy(net_dev->dev_addr, dev_info.mac_addr, ETH_ALEN);
-	else
-		/*
-		 * Generate random mac address. eth_random_addr() is the
-		 * newer version of generating mac address in kernel.
-		 */
-		random_ether_addr(net_dev->dev_addr);
-
 	if (dev_info.mtu)
 		net_dev->mtu = dev_info.mtu;
 #ifdef HAVE_MAX_MTU_PARAM
@@ -417,14 +449,29 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 		net_dev->max_mtu = dev_info.max_mtu;
 #endif
 
-	ret = register_netdev(net_dev);
-	if (ret) {
-		pr_err("error %i registering device \"%s\"\n",
-					ret, dev_info.name);
-		kni->net_dev = NULL;
-		kni_dev_remove(kni);
-		free_netdev(net_dev);
-		return -ENODEV;
+	if (!kni_exists) {
+		/* if user has provided a valid mac address */
+		if (is_valid_ether_addr(dev_info.mac_addr))
+			memcpy(net_dev->dev_addr, dev_info.mac_addr, ETH_ALEN);
+		else
+			/*
+			 * Generate random mac address. eth_random_addr() is the newer
+			 * version of generating mac address in linux kernel.
+			 */
+			random_ether_addr(net_dev->dev_addr);
+
+		if (dev_info.ifindex)
+			net_dev->ifindex = dev_info.ifindex;
+
+		ret = register_netdev(net_dev);
+		if (ret) {
+			pr_err("error %i registering device \"%s\"\n",
+			       ret, dev_info.name);
+			kni->net_dev = NULL;
+			kni_dev_remove(kni, 1);
+			free_netdev(net_dev);
+			return -ENODEV;
+		}
 	}
 
 	netif_carrier_off(net_dev);
@@ -433,9 +480,13 @@ kni_ioctl_create(struct net *net, uint32_t ioctl_num,
 	if (ret != 0)
 		return ret;
 
-	down_write(&knet->kni_list_lock);
-	list_add(&kni->list, &knet->kni_list_head);
-	up_write(&knet->kni_list_lock);
+	if (!kni_exists) {
+		down_write(&knet->kni_list_lock);
+		list_add(&kni->list, &knet->kni_list_head);
+		up_write(&knet->kni_list_lock);
+	} else {
+		kni->kni_released = 0;
+	}
 
 	return 0;
 }
@@ -469,7 +520,7 @@ kni_ioctl_release(struct net *net, uint32_t ioctl_num,
 			dev->pthread = NULL;
 		}
 
-		kni_dev_remove(dev);
+		kni_dev_remove(dev, 1);
 		list_del(&dev->list);
 		ret = 0;
 		break;

@@ -24,11 +24,12 @@
 #include <rte_eal_memconfig.h>
 #include <rte_kni_common.h>
 #include "rte_kni_fifo.h"
+#include "rte_version.h"
 
 #define MAX_MBUF_BURST_NUM            32
 
 /* Maximum number of ring entries */
-#define KNI_FIFO_COUNT_MAX     1024
+#define KNI_FIFO_COUNT_MAX     64
 #define KNI_FIFO_SIZE          (KNI_FIFO_COUNT_MAX * sizeof(void *) + \
 					sizeof(struct rte_kni_fifo))
 
@@ -259,6 +260,7 @@ rte_kni_alloc(struct rte_mempool *pktmbuf_pool,
 	memset(&dev_info, 0, sizeof(dev_info));
 	dev_info.core_id = conf->core_id;
 	dev_info.force_bind = conf->force_bind;
+	dev_info.persist_on_close = conf->persist_on_close;
 	dev_info.group_id = conf->group_id;
 	dev_info.mbuf_size = conf->mbuf_size;
 	dev_info.mtu = conf->mtu;
@@ -266,6 +268,7 @@ rte_kni_alloc(struct rte_mempool *pktmbuf_pool,
 	dev_info.max_mtu = conf->max_mtu;
 
 	memcpy(dev_info.mac_addr, conf->mac_addr, RTE_ETHER_ADDR_LEN);
+	dev_info.ifindex = conf->ifindex;
 
 	strlcpy(dev_info.name, conf->name, RTE_KNI_NAMESIZE);
 
@@ -307,6 +310,7 @@ rte_kni_alloc(struct rte_mempool *pktmbuf_pool,
 	kni->sync_addr = kni->m_sync_addr->addr;
 	dev_info.sync_va = kni->m_sync_addr->addr;
 	dev_info.sync_phys = kni->m_sync_addr->phys_addr;
+	dev_info.rte_version = RTE_VERSION;
 
 	kni->pktmbuf_pool = pktmbuf_pool;
 	kni->group_id = conf->group_id;

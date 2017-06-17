@@ -53,6 +53,9 @@ struct rte_kni_ops {
 	int (*config_allmulticast)(uint16_t port_id, uint8_t to_on);
 };
 
+#define HAS_KNI_PERSIST_ON_CLOSE
+#define HAS_KNI_IFINDEX
+
 /**
  * Structure for configuring KNI device.
  */
@@ -71,10 +74,12 @@ struct rte_kni_conf {
 
 	__extension__
 	uint8_t force_bind : 1; /* Flag to bind kernel thread */
+	uint8_t persist_on_close : 1; /* Flag to keep KNI around post /dev/kni close */
 	uint8_t mac_addr[RTE_ETHER_ADDR_LEN]; /* MAC address assigned to KNI */
 	uint16_t mtu;
 	uint16_t min_mtu;
 	uint16_t max_mtu;
+	uint32_t ifindex;
 };
 
 /**

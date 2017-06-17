@@ -81,6 +81,14 @@ struct kni_dev {
 	/* mbuf size */
 	uint32_t mbuf_size;
 
+	/* synchro for request processing */
+	unsigned long synchro;
+
+	/* Persist netdev on /dev/kni close */
+	uint8_t netdev_persist : 1;
+
+	/* /dev/kni is closed or not */
+	uint8_t kni_released : 1;
 	/* buffers */
 	void *pa[MBUF_BURST_SZ];
 	void *va[MBUF_BURST_SZ];

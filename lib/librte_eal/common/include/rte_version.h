@@ -14,10 +14,14 @@
 extern "C" {
 #endif
 
+#ifndef __KERNEL__
+
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <rte_common.h>
+
+#endif
 
 /**
  * Macro to compute a version number usable for comparisons
