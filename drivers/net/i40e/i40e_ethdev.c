@@ -1806,9 +1806,7 @@ i40e_dev_configure(struct rte_eth_dev *dev)
 	enum rte_eth_rx_mq_mode mq_mode = dev->data->dev_conf.rxmode.mq_mode;
 	int i, ret;
 
-	ret = i40e_dev_sync_phy_type(hw);
-	if (ret)
-		return ret;
+	i40e_dev_sync_phy_type(hw);
 
 	/* Initialize to TRUE. If any of Rx queues doesn't meet the
 	 * bulk allocation or vector Rx preconditions we will reset it.
@@ -2406,8 +2404,17 @@ i40e_dev_start(struct rte_eth_dev *dev)
 		if (ret != I40E_SUCCESS)
 			PMD_DRV_LOG(WARNING, "Fail to set phy mask");
 
-		/* Call get_link_info aq commond to enable/disable LSE */
-		i40e_dev_link_update(dev, 0);
+		/* Call get_link_info aq command to enable/disable LSE */
+		ret = i40e_dev_link_update(dev, 1);
+		if (ret == I40E_SUCCESS &&
+				dev->data->dev_link.link_status == ETH_LINK_UP) {
+			/* Apply link configure */
+			ret = i40e_apply_link_speed(dev);
+			if (I40E_SUCCESS != ret) {
+				PMD_DRV_LOG(ERR, "Fail to apply link setting");
+				goto tx_err;
+			}
+		}
 	}
 
 	if (dev->data->dev_conf.intr_conf.rxq == 0) {
@@ -6726,7 +6733,7 @@ i40e_dev_handle_aq_msg(struct rte_eth_dev *dev)
 					info.msg_len);
 			break;
 		case i40e_aqc_opc_get_link_status:
-			ret = i40e_dev_link_update(dev, 0);
+			ret = i40e_dev_link_update(dev, 1);
 			if (!ret)
 				_rte_eth_dev_callback_process(dev,
 					RTE_ETH_EVENT_INTR_LSC, NULL);
