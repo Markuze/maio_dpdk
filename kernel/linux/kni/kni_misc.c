@@ -533,6 +533,48 @@ kni_ioctl_release(struct net *net, uint32_t ioctl_num,
 }
 
 static int
+kni_ioctl_set_stats(struct net *net, uint32_t ioctl_num,
+		unsigned long ioctl_param)
+{
+	struct kni_net *knet = net_generic(net, kni_net_id);
+	int ret = -EINVAL;
+	struct kni_dev *dev, *n;
+	struct rte_kni_stats stats;
+
+	if (_IOC_SIZE(ioctl_num) > sizeof(stats))
+		return -EINVAL;
+
+	ret = copy_from_user(&stats, (void *)ioctl_param, sizeof(stats));
+	if (ret) {
+		pr_err("copy_from_user in kni_ioctl_release");
+		return -EIO;
+	}
+
+	/* Release the network device according to its name */
+	if (strlen(stats.name) == 0)
+		return ret;
+
+	down_write(&knet->kni_list_lock);
+	list_for_each_entry_safe(dev, n, &knet->kni_list_head, list) {
+		if (strncmp(dev->name, stats.name, RTE_KNI_NAMESIZE) != 0)
+			continue;
+
+		dev->stats.rx_packets = stats.rx_packets;
+		dev->stats.tx_packets = stats.tx_packets;
+		dev->stats.rx_bytes = stats.rx_bytes;
+		dev->stats.tx_bytes = stats.tx_bytes;
+		dev->stats.rx_errors = stats.rx_errors;
+		dev->stats.tx_errors = stats.tx_errors;
+		dev->stats.rx_dropped = stats.rx_dropped;
+		dev->stats.tx_dropped = stats.tx_dropped;
+		break;
+	}
+	up_write(&knet->kni_list_lock);
+
+	return ret;
+}
+
+static int
 kni_ioctl(struct inode *inode, uint32_t ioctl_num, unsigned long ioctl_param)
 {
 	int ret = -EINVAL;
@@ -552,6 +594,9 @@ kni_ioctl(struct inode *inode, uint32_t ioctl_num, unsigned long ioctl_param)
 		break;
 	case _IOC_NR(RTE_KNI_IOCTL_RELEASE):
 		ret = kni_ioctl_release(net, ioctl_num, ioctl_param);
+		break;
+	case _IOC_NR(RTE_KNI_SET_STATS):
+		ret = kni_ioctl_set_stats(net, ioctl_num, ioctl_param);
 		break;
 	default:
 		pr_debug("IOCTL default\n");

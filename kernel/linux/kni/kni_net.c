@@ -721,6 +721,17 @@ kni_net_poll_resp(struct kni_dev *kni)
 }
 
 /*
+ * Return statistics to the caller
+ */
+static struct net_device_stats *
+kni_net_stats(struct net_device *dev)
+{
+	struct kni_dev *kni = netdev_priv(dev);
+
+	return &kni->stats;
+}
+
+/*
  *  Fill the eth header
  */
 static int
@@ -812,6 +823,7 @@ static const struct net_device_ops kni_net_netdev_ops = {
 	.ndo_change_rx_flags = kni_net_change_rx_flags,
 	.ndo_start_xmit = kni_net_tx,
 	.ndo_change_mtu = kni_net_change_mtu,
+	.ndo_get_stats = kni_net_stats,
 	.ndo_tx_timeout = kni_net_tx_timeout,
 	.ndo_set_mac_address = kni_net_set_mac,
 #ifdef HAVE_CHANGE_CARRIER_CB

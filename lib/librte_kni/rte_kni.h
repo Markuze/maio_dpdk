@@ -55,6 +55,11 @@ struct rte_kni_ops {
 
 #define HAS_KNI_PERSIST_ON_CLOSE
 #define HAS_KNI_IFINDEX
+#define HAS_KNI_SET_STATS
+
+struct rte_kni_stats;
+__rte_experimental
+int rte_kni_set_stats(struct rte_kni *kni, struct rte_kni_stats *stats);
 
 /**
  * Structure for configuring KNI device.

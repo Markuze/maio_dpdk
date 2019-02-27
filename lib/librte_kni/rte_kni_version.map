@@ -20,4 +20,5 @@ EXPERIMENTAL {
 	global:
 
 	rte_kni_update_link;
+	rte_kni_set_stats;
 };

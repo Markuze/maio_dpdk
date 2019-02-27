@@ -832,3 +832,14 @@ rte_kni_close(void)
 	close(kni_fd);
 	kni_fd = -1;
 }
+
+int rte_kni_set_stats(struct rte_kni *kni, struct rte_kni_stats *stats)
+{
+	if (kni_fd < 0)
+		return -1;
+	snprintf(stats->name, RTE_KNI_NAMESIZE, "%s", kni->name);
+	if (ioctl(kni_fd, RTE_KNI_SET_STATS, stats) < 0) {
+		return -1;
+	}
+	return 0;
+}
