@@ -27,6 +27,16 @@
 
 #define RTE_VIRTIO_DESC_PER_LOOP 8
 
+static inline void
+virtio_recv_pkts_add_bytes(struct virtnet_rx *rxvq, struct rte_mbuf **rx_pkts,
+			uint16_t nb_pkts)
+{
+	uint16_t i;
+	for (i = 0; i < nb_pkts; ++i) {
+		rxvq->stats.bytes += rx_pkts[i]->pkt_len;
+	}
+}
+
 /* virtio vPMD receive routine, only accept(nb_pkts >= RTE_VIRTIO_DESC_PER_LOOP)
  *
  * This routine is for non-mergeable RX, one desc for each guest buffer.
@@ -50,6 +60,7 @@ virtio_recv_pkts_vec(void *rx_queue, struct rte_mbuf **rx_pkts,
 	struct rte_mbuf **sw_ring_end;
 	struct rte_mbuf **ref_rx_pkts;
 	uint16_t nb_pkts_received = 0;
+	uint16_t nb_pkts_counted = 0;
 	__m128i shuf_msk1, shuf_msk2, len_adjust;
 
 	shuf_msk1 = _mm_set_epi8(
@@ -182,6 +193,9 @@ virtio_recv_pkts_vec(void *rx_queue, struct rte_mbuf **rx_pkts,
 			} else {
 				nb_pkts_received += RTE_VIRTIO_DESC_PER_LOOP;
 
+				virtio_recv_pkts_add_bytes(rxvq, rx_pkts, RTE_VIRTIO_DESC_PER_LOOP);
+				nb_pkts_counted = nb_pkts_received;
+
 				rx_pkts += RTE_VIRTIO_DESC_PER_LOOP;
 				sw_ring += RTE_VIRTIO_DESC_PER_LOOP;
 				rused   += RTE_VIRTIO_DESC_PER_LOOP;
@@ -189,6 +203,8 @@ virtio_recv_pkts_vec(void *rx_queue, struct rte_mbuf **rx_pkts,
 			}
 		}
 	}
+
+	virtio_recv_pkts_add_bytes(rxvq, rx_pkts, nb_pkts_received - nb_pkts_counted);
 
 	vq->vq_used_cons_idx += nb_pkts_received;
 	vq->vq_free_cnt += nb_pkts_received;
