@@ -3726,6 +3726,8 @@ enum ixgbe_sfp_type {
 	ixgbe_sfp_type_1g_lx_core1 = 14,
 	ixgbe_sfp_type_1g_lha_core0 = 15,
 	ixgbe_sfp_type_1g_lha_core1 = 16,
+	ixgbe_sfp_type_10g_cu_core0 = 17,
+	ixgbe_sfp_type_10g_cu_core1 = 18,
 	ixgbe_sfp_type_not_present = 0xFFFE,
 	ixgbe_sfp_type_unknown = 0xFFFF
 };
@@ -3955,9 +3957,9 @@ struct ixgbe_mac_operations {
 	s32 (*negotiate_api_version)(struct ixgbe_hw *hw, int api);
 
 	/* Link */
-	void (*disable_tx_laser)(struct ixgbe_hw *);
-	void (*enable_tx_laser)(struct ixgbe_hw *);
-	void (*flap_tx_laser)(struct ixgbe_hw *);
+	int (*disable_tx_laser)(struct ixgbe_hw *);
+	int (*enable_tx_laser)(struct ixgbe_hw *);
+	int (*flap_tx_laser)(struct ixgbe_hw *);
 	s32 (*setup_link)(struct ixgbe_hw *, ixgbe_link_speed, bool);
 	s32 (*setup_mac_link)(struct ixgbe_hw *, ixgbe_link_speed, bool);
 	s32 (*check_link)(struct ixgbe_hw *, ixgbe_link_speed *, bool *, bool);
@@ -4032,6 +4034,8 @@ struct ixgbe_mac_operations {
 struct ixgbe_phy_operations {
 	s32 (*identify)(struct ixgbe_hw *);
 	s32 (*identify_sfp)(struct ixgbe_hw *);
+	s32 (*sfp_event)(struct ixgbe_hw *);
+	s32 (*link_led)(struct ixgbe_hw *, u32);
 	s32 (*init)(struct ixgbe_hw *);
 	s32 (*reset)(struct ixgbe_hw *);
 	s32 (*read_reg)(struct ixgbe_hw *, u32, u32, u16 *);
@@ -4070,6 +4074,7 @@ struct ixgbe_link_operations {
 
 struct ixgbe_link_info {
 	struct ixgbe_link_operations ops;
+	bool link_up;
 	u8 addr;
 };
 
@@ -4133,6 +4138,7 @@ struct ixgbe_phy_info {
 	u32 phy_semaphore_mask;
 	bool reset_disable;
 	ixgbe_autoneg_advertised autoneg_advertised;
+	ixgbe_link_speed speeds_sku;	// SKU limited speeds;
 	ixgbe_link_speed speeds_supported;
 	ixgbe_link_speed eee_speeds_supported;
 	ixgbe_link_speed eee_speeds_advertised;
@@ -4142,6 +4148,19 @@ struct ixgbe_phy_info {
 	bool reset_if_overtemp;
 	bool qsfp_shared_i2c_bus;
 	u32 nw_mng_if_sel;
+	bool sfp_present;
+	u8 sfp_event_pipe;
+};
+
+enum ixgbe_sfp_event {
+	IXGBE_SFP_NONE = 0,		// no SFP, nor removed;
+	IXGBE_SFP_INSERTED = 1,		// SFP inserted;
+	IXGBE_SFP_REMOVED = 2,		// SFP removed;
+	IXGBE_SFP_PRESENT = 3,		// SFP present, not inserted;
+	IXGBE_SFP_LOS = 4,		// SFP loss of signal;
+	IXGBE_SFP_DOS = 5,		// SFP signal detected;
+	IXGBE_SFP_TXFAULT = 6,		// SFP tx fault;
+	IXGBE_SFP_NO_PLATFORM = 7,	// no platform-specific SFP handling;
 };
 
 #include "ixgbe_mbx.h"
@@ -4244,7 +4263,7 @@ struct ixgbe_hw {
 #define IXGBE_ERR_FDIR_CMD_INCOMPLETE		-38
 #define IXGBE_ERR_FW_RESP_INVALID		-39
 #define IXGBE_ERR_TOKEN_RETRY			-40
-
+#define IXGBE_ERR_SFP_FAILED			-41
 #define IXGBE_NOT_IMPLEMENTED			0x7FFFFFFF
 
 #define IXGBE_FUSES0_GROUP(_i)		(0x11158 + ((_i) * 4))

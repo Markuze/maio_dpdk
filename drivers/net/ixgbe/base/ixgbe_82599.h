@@ -8,9 +8,9 @@
 s32 ixgbe_get_link_capabilities_82599(struct ixgbe_hw *hw,
 				      ixgbe_link_speed *speed, bool *autoneg);
 enum ixgbe_media_type ixgbe_get_media_type_82599(struct ixgbe_hw *hw);
-void ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
-void ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
-void ixgbe_flap_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
+int ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
+int ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
+int ixgbe_flap_tx_laser_multispeed_fiber(struct ixgbe_hw *hw);
 void ixgbe_set_hard_rate_select_speed(struct ixgbe_hw *hw,
 					ixgbe_link_speed speed);
 s32 ixgbe_setup_mac_link_smartspeed(struct ixgbe_hw *hw,

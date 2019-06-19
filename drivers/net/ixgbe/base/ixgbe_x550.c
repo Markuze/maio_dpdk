@@ -315,6 +315,8 @@ STATIC void ixgbe_setup_mux_ctl(struct ixgbe_hw *hw)
  */
 STATIC s32 ixgbe_identify_phy_x550em(struct ixgbe_hw *hw)
 {
+	ixgbe_platform_setup(hw);
+
 	hw->mac.ops.set_lan_id(hw);
 
 	ixgbe_read_mng_if_sel_x550em(hw);
@@ -444,6 +446,8 @@ static s32 ixgbe_get_phy_id_fw(struct ixgbe_hw *hw)
 		if (phy_speeds & ixgbe_fw_map[i].fw_speed)
 			hw->phy.speeds_supported |= ixgbe_fw_map[i].phy_speed;
 	}
+	hw->phy.speeds_supported &= ~hw->phy.speeds_sku;
+
 	if (!hw->phy.autoneg_advertised)
 		hw->phy.autoneg_advertised = hw->phy.speeds_supported;
 
@@ -1539,11 +1543,13 @@ STATIC s32 ixgbe_supported_sfp_modules_X550em(struct ixgbe_hw *hw, bool *linear)
 		*linear = false;
 		break;
 	// 1g copper SFP support;
+	case ixgbe_sfp_type_unknown:
 	case ixgbe_sfp_type_1g_cu_core0:
 	case ixgbe_sfp_type_1g_cu_core1:
-		*linear = false;
+	case ixgbe_sfp_type_10g_cu_core0:
+	case ixgbe_sfp_type_10g_cu_core1:
+		*linear = true;
 		break;
-	case ixgbe_sfp_type_unknown:
 	default:
 		return IXGBE_ERR_SFP_NOT_SUPPORTED;
 	}
@@ -1807,6 +1813,7 @@ void ixgbe_init_mac_link_ops_X550em(struct ixgbe_hw *hw)
 		mac->ops.disable_tx_laser = NULL;
 		mac->ops.enable_tx_laser = NULL;
 		mac->ops.flap_tx_laser = NULL;
+		ixgbe_platform_laser_setup(hw);
 		mac->ops.setup_link = ixgbe_setup_mac_link_multispeed_fiber;
 		mac->ops.set_rate_select_speed =
 					ixgbe_set_soft_rate_select_speed;
@@ -1877,24 +1884,30 @@ s32 ixgbe_get_link_capabilities_X550em(struct ixgbe_hw *hw,
 		*autoneg = false;
 
 		/* Check if 1G SFP module. */
-		if (hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core0 ||
-		    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core1
-		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_lha_core0 ||
-		    hw->phy.sfp_type == ixgbe_sfp_type_1g_lha_core1
-		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core0
-		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core1
-		    || hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core0 ||
-		    hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core1) {
+		switch(hw->phy.sfp_type) {
+		case ixgbe_sfp_type_1g_sx_core0:
+		case ixgbe_sfp_type_1g_sx_core1:
+		case ixgbe_sfp_type_1g_lx_core0:
+		case ixgbe_sfp_type_1g_lx_core1:
+		case ixgbe_sfp_type_1g_cu_core0:
+		case ixgbe_sfp_type_1g_cu_core1:
+		case ixgbe_sfp_type_1g_lha_core0:
+		case ixgbe_sfp_type_1g_lha_core1:
 			*speed = IXGBE_LINK_SPEED_1GB_FULL;
-			return IXGBE_SUCCESS;
-		}
-
-		/* Link capabilities are based on SFP */
-		if (hw->phy.multispeed_fiber)
-			*speed = IXGBE_LINK_SPEED_10GB_FULL |
-				 IXGBE_LINK_SPEED_1GB_FULL;
-		else
+			break;
+		case ixgbe_sfp_type_10g_cu_core0:
+		case ixgbe_sfp_type_10g_cu_core1:
 			*speed = IXGBE_LINK_SPEED_10GB_FULL;
+			break;
+		default:
+			/* Link capabilities are based on SFP */
+			if (hw->phy.multispeed_fiber)
+				*speed = IXGBE_LINK_SPEED_10GB_FULL |
+				 	IXGBE_LINK_SPEED_1GB_FULL;
+			else
+				*speed = IXGBE_LINK_SPEED_10GB_FULL;
+			break;
+		}
 	} else {
 		*autoneg = true;
 
@@ -1938,7 +1951,7 @@ s32 ixgbe_get_link_capabilities_X550em(struct ixgbe_hw *hw,
 			break;
 		}
 	}
-
+	*speed &= ~hw->phy.speeds_sku;
 	return IXGBE_SUCCESS;
 }
 
@@ -2719,6 +2732,7 @@ s32 ixgbe_setup_mac_link_sfp_x550a(struct ixgbe_hw *hw,
 	u16 reg_phy_ext;
 	bool setup_linear = false;
 	u32 reg_slice, reg_phy_int, slice_offset;
+	ixgbe_link_speed s10g;
 
 	UNREFERENCED_1PARAMETER(autoneg_wait_to_complete);
 
@@ -2744,7 +2758,8 @@ s32 ixgbe_setup_mac_link_sfp_x550a(struct ixgbe_hw *hw,
 			return ret_val;
 
 		reg_phy_int &= IXGBE_KRM_PMD_FLX_MASK_ST20_SFI_10G_DA;
-		if (!setup_linear)
+		s10g = !(hw->phy.speeds_sku & IXGBE_LINK_SPEED_10GB_FULL);
+		if (!setup_linear && s10g)
 			reg_phy_int |= IXGBE_KRM_PMD_FLX_MASK_ST20_SFI_10G_SR;
 
 		ret_val = hw->mac.ops.write_iosf_sb_reg(hw,

@@ -408,6 +408,9 @@ s32 ixgbe_start_hw_generic(struct ixgbe_hw *hw)
 	/* Clear adapter stopped flag */
 	hw->adapter_stopped = false;
 
+	/* We need to run link autotry after the driver loads */
+	hw->mac.autotry_restart = true;
+
 	return IXGBE_SUCCESS;
 }
 
@@ -5225,6 +5228,14 @@ s32 ixgbe_setup_mac_link_multispeed_fiber(struct ixgbe_hw *hw,
 		return status;
 
 	speed &= link_speed;
+
+	// warn about SKUs not supporting speed;
+
+	if (!speed) {
+		DEBUGOUT1("SFP+ speeds not supported by NIC 0x%x\n",
+			hw->phy.speeds_sku);
+		return IXGBE_ERR_SFP_NOT_SUPPORTED;
+	}
 
 	/* Try each speed one by one, highest priority first.  We do this in
 	 * software because 10Gb fiber doesn't support speed autonegotiation.

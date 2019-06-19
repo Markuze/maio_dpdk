@@ -1202,6 +1202,7 @@ eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev, void *init_params __rte_unused)
 		return -EIO;
 	}
 
+	hw->back = eth_dev;
 	/* Vendor and Device ID need to be set before init of shared code */
 	hw->device_id = pci_dev->id.device_id;
 	hw->vendor_id = pci_dev->id.vendor_id;
@@ -3394,6 +3395,77 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw,
 		IXGBE_READ_REG(hw, IXGBE_LSECRXNUSA);
 }
 
+static void ixgbe_vc_check_link_and_set_led(struct ixgbe_hw *hw,
+        bool wait_to_complete)
+{
+	uint32_t speed;
+	bool link_up;
+
+	if (! hw->phy.sfp_present)
+		return;
+
+	if (hw->mac.ops.check_link) {
+		hw->mac.ops.check_link(hw, &speed, &link_up, wait_to_complete);
+	}
+
+	if(hw->phy.ops.link_led && (link_up != hw->link.link_up)) {
+               	if (link_up) {
+			hw->phy.ops.link_led(hw, speed);
+		} else {
+			hw->phy.ops.link_led(hw, IXGBE_LINK_SPEED_UNKNOWN);
+		}
+		hw->link.link_up = link_up;
+	}
+}
+
+/*
+ * sfp event detection task;
+ * deals with SFP control signals, which are GPIO on some platforms;
+ * return the sfp event code;
+ */
+static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
+{
+	uint32_t sfp_event;
+
+	// handle SFP events;
+
+	sfp_event = hw->phy.ops.sfp_event(hw);
+	switch (sfp_event) {
+	case IXGBE_SFP_NONE:
+		break;
+	case IXGBE_SFP_PRESENT:
+		hw->phy.sfp_present = 1;
+		ixgbe_vc_check_link_and_set_led(hw, false);
+		break;
+	case IXGBE_SFP_TXFAULT:
+		PMD_DRV_LOG(DEBUG, "SFP tx fault");
+		break;
+	case IXGBE_SFP_LOS:
+		PMD_DRV_LOG(DEBUG, "SFP signal loss");
+		break;
+	case IXGBE_SFP_DOS:
+		PMD_DRV_LOG(DEBUG, "SFP signal detected");
+		break;
+	case IXGBE_SFP_REMOVED:
+		PMD_DRV_LOG(DEBUG, "SFP removed");
+		hw->phy.sfp_present = 0;
+		if (hw->mac.ops.disable_tx_laser)
+			hw->mac.ops.disable_tx_laser(hw);
+                if(hw->phy.ops.link_led) {
+                        hw->phy.ops.link_led(hw, IXGBE_LINK_SPEED_UNKNOWN);
+			hw->link.link_up= 0;
+		}
+		break;
+	case IXGBE_SFP_INSERTED:
+		PMD_DRV_LOG(DEBUG, "SFP inserted");
+		hw->phy.sfp_present = 1;
+		if (hw->mac.ops.enable_tx_laser)
+			hw->mac.ops.enable_tx_laser(hw);
+		break;
+	}
+	return sfp_event;
+}
+
 /*
  * Detect presence of SFP module.
  */
@@ -3401,7 +3473,7 @@ static void
 ixgbe_dev_detect_sfp(struct rte_eth_dev *dev)
 {
    int rv;
-   uint32_t speed;
+   uint32_t speed, event;
    bool link_up;
    bool autoneg = false;
    struct ixgbe_hw *hw =
@@ -3409,34 +3481,54 @@ ixgbe_dev_detect_sfp(struct rte_eth_dev *dev)
 
    PMD_INIT_FUNC_TRACE();
 
-   hw->mac.ops.check_link(hw, &speed, &link_up, false);
+   event = ixgbe_sfp_event_task(hw);
 
-   if (link_up)
-       return;
+   /* 'event_task' not supported on this platform */
+   if (event == IXGBE_SFP_NO_PLATFORM) {
+       hw->mac.ops.check_link(hw, &speed, &link_up, false);
 
-   if (hw->phy.ops.identify_sfp(hw))
+       if (link_up) {
+           return;
+       }
+   } else {
+       switch (event) {
+
+       case IXGBE_SFP_INSERTED:
+           break;
+       default:
+           return;
+       }
+   }
+
+   if (hw->phy.ops.identify_sfp(hw) == IXGBE_ERR_SFP_NOT_PRESENT) {
+       if(hw->phy.ops.link_led) {
+           hw->phy.ops.link_led(hw, IXGBE_LINK_SPEED_UNKNOWN);
+           hw->link.link_up = 0;
+       }
        return;
+   }
 
    rv = hw->mac.ops.setup_sfp(hw);
    if (rv)
        return;
 
    speed = hw->phy.autoneg_advertised;
-        if ((!speed) && (hw->mac.ops.get_link_capabilities)) {
-                hw->mac.ops.get_link_capabilities(hw, &speed, &autoneg);
+   speed &= ~hw->phy.speeds_sku;
+   if ((!speed) && (hw->mac.ops.get_link_capabilities)) {
+       hw->mac.ops.get_link_capabilities(hw, &speed, &autoneg);
 
-                /* setup the highest link when no autoneg */
-                if (!autoneg) {
-                        if (speed & IXGBE_LINK_SPEED_10GB_FULL)
-                                speed = IXGBE_LINK_SPEED_10GB_FULL;
-                }
-        }
+       /* setup the highest link when no autoneg */
+       if (!autoneg) {
+           if (speed & IXGBE_LINK_SPEED_10GB_FULL)
+               speed = IXGBE_LINK_SPEED_10GB_FULL;
+       }
+   }
 
-        if (hw->mac.ops.setup_link)
-                hw->mac.ops.setup_link(hw, speed, true);
+   if (hw->mac.ops.setup_link)
+       hw->mac.ops.setup_link(hw, speed, true);
 
-        if (hw->mac.ops.check_link) {
-                hw->mac.ops.check_link(hw, &speed, &link_up, false);
+   if (event == IXGBE_SFP_INSERTED) {
+       ixgbe_vc_check_link_and_set_led(hw, true);
    }
 }
 

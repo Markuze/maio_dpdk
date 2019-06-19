@@ -641,19 +641,21 @@ out:
  *  PHY states.  This includes selectively shutting down the Tx
  *  laser on the PHY, effectively halting physical link.
  **/
-void ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
+int ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 {
 	u32 esdp_reg = IXGBE_READ_REG(hw, IXGBE_ESDP);
 
 	/* Blocked by MNG FW so bail */
 	if (ixgbe_check_reset_blocked(hw))
-		return;
+		return 0;
 
 	/* Disable Tx laser; allow 100us to go dark per spec */
 	esdp_reg |= IXGBE_ESDP_SDP3;
 	IXGBE_WRITE_REG(hw, IXGBE_ESDP, esdp_reg);
 	IXGBE_WRITE_FLUSH(hw);
 	usec_delay(100);
+
+	return 0;
 }
 
 /**
@@ -664,7 +666,7 @@ void ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
  *  PHY states.  This includes selectively turning on the Tx
  *  laser on the PHY, effectively starting physical link.
  **/
-void ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
+int ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 {
 	u32 esdp_reg = IXGBE_READ_REG(hw, IXGBE_ESDP);
 
@@ -673,6 +675,8 @@ void ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 	IXGBE_WRITE_REG(hw, IXGBE_ESDP, esdp_reg);
 	IXGBE_WRITE_FLUSH(hw);
 	msec_delay(100);
+
+	return 0;
 }
 
 /**
@@ -687,19 +691,21 @@ void ixgbe_enable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
  *  end.  This is consistent with true clause 37 autoneg, which also
  *  involves a loss of signal.
  **/
-void ixgbe_flap_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
+int ixgbe_flap_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 {
 	DEBUGFUNC("ixgbe_flap_tx_laser_multispeed_fiber");
 
 	/* Blocked by MNG FW so bail */
 	if (ixgbe_check_reset_blocked(hw))
-		return;
+		return 0;
 
 	if (hw->mac.autotry_restart) {
 		ixgbe_disable_tx_laser_multispeed_fiber(hw);
 		ixgbe_enable_tx_laser_multispeed_fiber(hw);
 		hw->mac.autotry_restart = false;
 	}
+
+	return 0;
 }
 
 /**

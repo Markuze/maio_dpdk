@@ -20,6 +20,9 @@ extern s32 ixgbe_init_ops_X550EM_x(struct ixgbe_hw *hw);
 extern s32 ixgbe_init_ops_X550EM_a(struct ixgbe_hw *hw);
 extern s32 ixgbe_init_ops_vf(struct ixgbe_hw *hw);
 
+extern void ixgbe_platform_laser_setup(struct ixgbe_hw *hw);
+extern void ixgbe_platform_setup(struct ixgbe_hw *hw);
+
 s32 ixgbe_set_mac_type(struct ixgbe_hw *hw);
 s32 ixgbe_init_hw(struct ixgbe_hw *hw);
 s32 ixgbe_reset_hw(struct ixgbe_hw *hw);
