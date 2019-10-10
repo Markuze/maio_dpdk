@@ -46,8 +46,12 @@ static enum rte_intr_mode igbuio_intr_mode_preferred = RTE_INTR_MODE_MSIX;
 
 
 #ifndef NON_VELOCLOUD_KERNEL
-extern struct mii_bus *vc_mdio_bus;
 extern struct dmi_system_id *vc_dmi;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,114)
+extern struct mii_bus *vc_mdio_get(int index);
+#else
+extern struct mii_bus *vc_mdio_bus;
+#endif //NON_VELOCLOUD_KERNEL
 
 #define IGB_VC_SFP "sfp"        // sfp i2c driver name;
 
@@ -99,7 +103,6 @@ static struct i2c_client *vc_client[N_SFP_CLIENT];
 
 // sfp i2c data;
 static unsigned short igb_vc_i2c_addrs[] = { 0x50, 0x51, I2C_CLIENT_END };
-//static struct vc_i2c_sfp igb_vc_i2c_sfp;
 
 // detect i2c devices;
 // called for each i2c device before probing, by the i2c core;
@@ -129,8 +132,6 @@ igb_vc_i2c_detect(struct i2c_client *client, struct i2c_board_info *info)
 static int
 igb_vc_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
-   //struct vc_i2c_sfp *sfp = &igb_vc_i2c_sfp;
-        //struct pci_dev *pdev = adapter->pdev;
    int ret = -ENODEV;
 
    // EEPROM probe;
@@ -138,11 +139,6 @@ igb_vc_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
    if(client->addr == igb_vc_i2c_addrs[0]) {
        vc_client[SFP_EEPROM] = client;
-#if 0
-       ret = sysfs_create_group(&client->dev.kobj, &igb_vc_sfp_group);
-       if(ret < 0)
-           dev_err(&client->dev, "couldn't register sfp sysfs group\n");
-#endif
    }
 
    // DMI probe;
@@ -160,12 +156,7 @@ igb_vc_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 static int
 igb_vc_i2c_remove(struct i2c_client *client)
 {
-   //struct vc_i2c_sfp *sfp = &igb_vc_i2c_sfp;
-
    // remove sysfs entries;
-#if 0
-   sysfs_remove_group(&client->dev.kobj, &igb_vc_sfp_group);
-#endif
    vc_client[SFP_EEPROM] = NULL;
    vc_client[SFP_DMI] = NULL;
    return(0);
@@ -213,19 +204,27 @@ igb_uio_ioctl(struct file *file, u32 cmd, unsigned long arg)
    s32 rv = 0;
    struct mdio_fop fop;
    struct i2c_client *client;
+   struct mii_bus *bus;
    int gpio;
 
-   if (unlikely(!vc_mdio_bus))
-       return (rv);
-
-   if (copy_from_user(&fop, (struct mdio_fop *)arg,
-               sizeof(struct mdio_fop)))
-                return -EFAULT;
-
+   if (copy_from_user(&fop,
+           (struct mdio_fop *)arg, sizeof(struct mdio_fop)))
+        return -EFAULT;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,114)
+    bus = vc_mdio_get(fop.dev_func);
+    if (IS_ERR(bus)) {
+        return PTR_ERR(bus);
+    }
+#else
+    if (unlikely(!vc_mdio_bus)) {
+        return -ENODEV;
+    }
+    bus = vc_mdio_bus;
+#endif
    switch (cmd) {
 
         case MDIOBB_READ:
-       rv = mdiobus_read(vc_mdio_bus, fop.addr, fop.reg);
+       rv = mdiobus_read(bus, fop.addr, fop.reg);
        fop.data = rv;
        if (rv < 0)
            printk("MDIO READ ERROR %d\n", rv);
@@ -237,7 +236,7 @@ igb_uio_ioctl(struct file *file, u32 cmd, unsigned long arg)
 
        break;
         case MDIOBB_WRITE:
-       rv = mdiobus_write(vc_mdio_bus, fop.addr, fop.reg, fop.data);
+       rv = mdiobus_write(bus, fop.addr, fop.reg, fop.data);
        if (rv < 0)
            printk("MDIO WRITE ERROR %d\n", rv);
        else
@@ -283,7 +282,7 @@ static const struct file_operations igb_uio_fops = {
    .llseek         = noop_llseek,
 };
 
-#endif
+#endif //NON_VELOCLOUD_KERNEL
 
 
 /* sriov sysfs */
@@ -722,10 +721,9 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	void *map_addr;
 	int err;
 #ifndef NON_VELOCLOUD_KERNEL
-	extern struct dmi_system_id *vc_dmi;
 	unsigned long vc_id;
 	int i;
-#endif
+#endif //NON_VELOCLOUD_KERNEL
 
 #ifdef HAVE_PCI_IS_BRIDGE_API
 	if (pci_is_bridge(dev)) {
@@ -880,8 +878,7 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
        unregister_chrdev_region(devid, WAN_MAX_DEVS);
        dev_err(&dev->dev, "Unable to add device node 'wan'\n");
     }
-
-#endif
+#endif //NON_VELOCLOUD_KERNEL
 
 	return 0;
 
@@ -903,7 +900,7 @@ igbuio_pci_remove(struct pci_dev *dev)
 #ifndef NON_VELOCLOUD_KERNEL
     int i;
     unsigned long vc_id;
-#endif
+#endif //NON_VELOCLOUD_KERNEL
 
 	igbuio_pci_release(&udev->info, NULL);
 

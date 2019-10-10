@@ -424,8 +424,9 @@ igb_vc_mdiobb_read(struct e1000_hw *hw, u32 reg, u16 *data)
 
 	fd = open("/dev/wan", 0);
 
-	fop.addr = hw->phy.addr;
-	fop.reg  = reg;
+	fop.dev_func = hw->bus.func;
+	fop.addr     = hw->phy.addr;
+	fop.reg      = reg;
 
 	ret = ioctl(fd, MDIOBB_READ, &fop);
 	DEBUGOUT("%d/%d = 0x%x\n", MDIOBB_READ, reg, ret);
@@ -453,9 +454,10 @@ igb_vc_mdiobb_write(struct e1000_hw *hw, u32 reg, u16 data)
 
 	fd = open("/dev/wan", 0);
 
-	fop.addr = hw->phy.addr;
-	fop.reg  = reg;
-	fop.data = data;
+	fop.dev_func = hw->bus.func;
+	fop.addr     = hw->phy.addr;
+	fop.reg      = reg;
+	fop.data     = data;
 
 	// write the register;
 	ret = ioctl(fd, MDIOBB_WRITE, &fop);

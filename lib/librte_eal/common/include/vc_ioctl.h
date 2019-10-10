@@ -3,11 +3,11 @@
 
 #include <linux/ioctl.h>
 
-/* XXX Fixme -- 'unsigned int' does not transpose to u32 necessarily. */
 struct mdio_fop {
-        unsigned int addr;
-        unsigned int reg;
+	unsigned int addr;
+	unsigned int reg;
 	unsigned int data;
+	unsigned int dev_func;
 };
 
 #define MDIOBB_READ	 0x101
