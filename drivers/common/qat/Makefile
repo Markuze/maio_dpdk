@@ -13,10 +13,10 @@ CFLAGS += -I$(SRCDIR)/qat_adf
 CFLAGS += -I$(SRCDIR)
 CFLAGS += -I$(QAT_CRYPTO_DIR)
 CFLAGS += -I$(QAT_COMPRESS_DIR)
+CFLAGS += -DALLOW_EXPERIMENTAL_API
 
 
 ifeq ($(CONFIG_RTE_LIBRTE_COMPRESSDEV),y)
-	CFLAGS += -DALLOW_EXPERIMENTAL_API
 	LDLIBS += -lrte_compressdev
 	SRCS-y += qat_comp.c
 	SRCS-y += qat_comp_pmd.c
