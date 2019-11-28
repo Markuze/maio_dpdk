@@ -27,6 +27,8 @@
 #endif
 #include <linux/version.h>
 
+#include <linux/version.h>
+
 #include <rte_compat.h>
 #include <rte_common.h>
 #include <rte_debug.h>
