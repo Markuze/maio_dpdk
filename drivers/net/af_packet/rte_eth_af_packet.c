@@ -763,6 +763,8 @@ rte_pmd_init_internals(struct rte_vdev_device *dev,
 		}
 
 #if defined(PACKET_FANOUT)
+		if (nb_queues == 1)
+			continue;
 		rc = setsockopt(qsockfd, SOL_PACKET, PACKET_FANOUT,
 				&fanout_arg, sizeof(fanout_arg));
 		if (rc == -1) {
