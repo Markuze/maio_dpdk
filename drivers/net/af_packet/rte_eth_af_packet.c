@@ -683,6 +683,16 @@ rte_pmd_init_internals(struct rte_vdev_device *dev,
 			goto error;
 		}
 
+        int bufsize = 1 * 1024 * 1024;
+        rc = setsockopt(qsockfd, SOL_SOCKET, SO_SNDBUFFORCE,
+                &bufsize, sizeof(bufsize));
+        if (rc == -1) {
+            RTE_LOG(ERR, PMD,
+                "%s: could not set SO_SNDBUFFORCE on "
+                    "AF_PACKET socket for %s\n", name, pair->value);
+            goto error;
+        }
+
 #if defined(PACKET_QDISC_BYPASS)
 		rc = setsockopt(qsockfd, SOL_PACKET, PACKET_QDISC_BYPASS,
 				&qdisc_bypass, sizeof(qdisc_bypass));
