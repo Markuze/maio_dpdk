@@ -16,6 +16,7 @@
 /* need update link, bit flag */
 #define E1000_FLAG_NEED_LINK_UPDATE (uint32_t)(1 << 0)
 #define E1000_FLAG_MAILBOX          (uint32_t)(1 << 1)
+#define E1000_FLAG_DRSTA            (uint32_t)(1 << 2)
 
 /*
  * Defines that were not part of e1000_hw.h as they are not used by the FreeBSD

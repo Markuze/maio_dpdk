@@ -117,6 +117,7 @@ static int  eth_igb_flow_ctrl_set(struct rte_eth_dev *dev,
 				struct rte_eth_fc_conf *fc_conf);
 static int eth_igb_lsc_interrupt_setup(struct rte_eth_dev *dev, uint8_t on);
 static int eth_igb_rxq_interrupt_setup(struct rte_eth_dev *dev);
+static int eth_igb_drsta_interrupt_setup(struct rte_eth_dev *dev);
 static int eth_igb_interrupt_get_status(struct rte_eth_dev *dev);
 static int eth_igb_interrupt_action(struct rte_eth_dev *dev,
 				    struct rte_intr_handle *handle);
@@ -1469,6 +1470,11 @@ eth_igb_start(struct rte_eth_dev *dev)
 	e1000_setup_link(hw);
 
 	if (rte_intr_allow_others(intr_handle)) {
+
+		if (eth_igb_drsta_interrupt_setup(dev)) {
+			PMD_INIT_LOG(INFO,"Failed to enable DRSTA interrupt on :%s ",pci_dev->name);
+		}
+
 		/* check if lsc interrupt is enabled */
 		if (dev->data->dev_conf.intr_conf.lsc != 0)
 			eth_igb_lsc_interrupt_setup(dev, TRUE);
@@ -2893,6 +2899,40 @@ static int eth_igb_rxq_interrupt_setup(struct rte_eth_dev *dev)
 	return 0;
 }
 
+/* When Kernel module does global reset as part of tx/rx hang
+ * recovery, it generates RSTA interrupt. We need to register/handle for this
+ * to stop/start DPDK rte device.
+ *
+ *@param dev
+ * Pointer to struct rte_eth_dev.
+ *
+ * @return
+ *  - On success, zero.
+ *  - On failure, a negative value.
+*/
+static int eth_igb_drsta_interrupt_setup(struct rte_eth_dev *dev)
+{
+	struct e1000_interrupt *intr = NULL;
+
+	if (!dev || !(dev->data) || !(dev->data->dev_private)) {
+
+		if(!(dev->data)){
+			PMD_INIT_LOG(ERR,"dev->data:%p",dev->data);
+		}
+
+		if(!(dev->data->dev_private)){
+			PMD_INIT_LOG(ERR,"dev->data->dev_private:%p",dev->data->dev_private);
+		}
+		return -1;
+	}
+
+	intr = E1000_DEV_PRIVATE_TO_INTR(dev->data->dev_private);
+
+	intr->mask |= E1000_ICR_DRSTA;
+
+	return 0;
+}
+
 /*
  * It reads ICR and gets interrupt causes, check it and set a bit flag
  * to update link status.
@@ -2923,6 +2963,10 @@ eth_igb_interrupt_get_status(struct rte_eth_dev *dev)
 		intr->flags |= E1000_FLAG_NEED_LINK_UPDATE;
 	}
 
+	if (icr & E1000_ICR_DRSTA) {
+		intr->flags |= E1000_FLAG_DRSTA;
+	}
+
 	if (icr & E1000_ICR_VMMB)
 		intr->flags |= E1000_FLAG_MAILBOX;
 
@@ -2949,6 +2993,7 @@ eth_igb_interrupt_action(struct rte_eth_dev *dev,
 		E1000_DEV_PRIVATE_TO_INTR(dev->data->dev_private);
 	struct rte_pci_device *pci_dev = RTE_ETH_DEV_TO_PCI(dev);
 	struct rte_eth_link link;
+	uint32_t tctl, rctl;
 	int ret;
 
 	if (intr->flags & E1000_FLAG_MAILBOX) {
@@ -2958,6 +3003,27 @@ eth_igb_interrupt_action(struct rte_eth_dev *dev,
 
 	igb_intr_enable(dev);
 	rte_intr_ack(intr_handle);
+
+	PMD_INIT_LOG(DEBUG,"intr->flags :%x",intr->flags);
+
+	if (intr->flags & E1000_FLAG_DRSTA) {
+
+		intr->flags &= ~E1000_FLAG_DRSTA;
+
+		tctl = E1000_READ_REG(hw, E1000_TCTL);
+		rctl = E1000_READ_REG(hw, E1000_RCTL);
+
+		tctl &= ~E1000_TCTL_EN;
+		rctl &= ~E1000_RCTL_EN;
+
+		E1000_WRITE_REG(hw, E1000_TCTL, tctl);
+		E1000_WRITE_REG(hw, E1000_RCTL, rctl);
+		E1000_WRITE_FLUSH(hw);
+
+		_rte_eth_dev_callback_process(dev, RTE_ETH_DEV_RESET_ASSERT,
+						NULL);
+		return 0;
+	}
 
 	if (intr->flags & E1000_FLAG_NEED_LINK_UPDATE) {
 		intr->flags &= ~E1000_FLAG_NEED_LINK_UPDATE;

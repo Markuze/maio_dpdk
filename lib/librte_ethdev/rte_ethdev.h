@@ -147,6 +147,7 @@ extern "C" {
 
 /* Use this macro to check if LRO API is supported */
 #define RTE_ETHDEV_HAS_LRO_SUPPORT
+#define  RTE_ETHDEV_HAS_VELO_DEV_RESET_ASSERT
 
 #include <rte_compat.h>
 #include <rte_log.h>
@@ -3025,6 +3026,7 @@ enum rte_eth_event_type {
 	RTE_ETH_EVENT_NEW,      /**< port is probed */
 	RTE_ETH_EVENT_DESTROY,  /**< port is released */
 	RTE_ETH_EVENT_IPSEC,    /**< IPsec offload related event */
+	RTE_ETH_DEV_RESET_ASSERT,/**< PCIe reset of device */
 	RTE_ETH_EVENT_MAX       /**< max value of this enum */
 };
 
