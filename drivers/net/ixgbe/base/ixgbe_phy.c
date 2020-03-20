@@ -1556,6 +1556,7 @@ s32 ixgbe_identify_sfp_module_generic(struct ixgbe_hw *hw)
 			ixgbe_sff_strip(IXGBE_SFF_PARTNUM_SIZE, partnum);
 			RTE_LOG(INFO, PMD, "SFP vendor=%s oui=%02x:%02x:%02x part=%s\n",
 				vendor, oui_bytes[0], oui_bytes[1], oui_bytes[2], partnum);
+			ixgbe_platform_sfp_setup(hw, vendor, oui_bytes, partnum);
 		}
 
 		/* Allow any DA cable vendor */

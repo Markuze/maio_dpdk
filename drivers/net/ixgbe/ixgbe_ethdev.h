@@ -754,6 +754,7 @@ int ixgbe_action_rss_same(const struct rte_flow_action_rss *comp,
 int ixgbe_config_rss_filter(struct rte_eth_dev *dev,
 		struct ixgbe_rte_flow_rss_conf *conf, bool add);
 void ixgbe_platform_setup(struct ixgbe_hw *hw);
+int ixgbe_platform_sfp_setup(struct ixgbe_hw *hw, u8 *vendor, u8 oui[3], u8 *partnum);
 
 void ixgbe_dev_macsec_register_enable(struct rte_eth_dev *dev,
 		struct ixgbe_macsec_setting *macsec_setting);

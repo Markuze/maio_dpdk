@@ -13,6 +13,23 @@ void ixgbe_platform_laser_setup(struct ixgbe_hw *hw);
 
 void ixgbe_platform_setup(struct ixgbe_hw *hw);
 
+// platform specific SFP config;
+int
+ixgbe_platform_sfp_setup(struct ixgbe_hw *hw, u8 *vendor, u8 oui[3], u8 *partnum)
+{
+	(void)oui; (void)partnum;
+	// increase settle time by another 100msec;
+	// this fixes the 1G->10G->1G change issue;
+
+	hw->phy.settle = 100;
+
+	// metanoia vDSL needs a lot longer to boot;
+
+	if( !strcmp((char *)vendor, "METANOIA"))
+		hw->phy.settle = 2000;
+
+	return 0;
+}
 
 STATIC s32 ixgbe_gpio_get_value(struct ixgbe_hw *hw, const char *pin_name)
 {

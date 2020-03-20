@@ -5260,6 +5260,8 @@ s32 ixgbe_setup_mac_link_multispeed_fiber(struct ixgbe_hw *hw,
 
 		/* Allow module to change analog characteristics (1G->10G) */
 		msec_delay(40);
+		if(hw->phy.settle)
+			msec_delay(hw->phy.settle);
 
 		status = ixgbe_setup_mac_link(hw,
 					      IXGBE_LINK_SPEED_10GB_FULL,
@@ -5310,6 +5312,8 @@ s32 ixgbe_setup_mac_link_multispeed_fiber(struct ixgbe_hw *hw,
 
 		/* Allow module to change analog characteristics (10G->1G) */
 		msec_delay(40);
+		if(hw->phy.settle)
+			msec_delay(hw->phy.settle);
 
 		status = ixgbe_setup_mac_link(hw,
 					      IXGBE_LINK_SPEED_1GB_FULL,

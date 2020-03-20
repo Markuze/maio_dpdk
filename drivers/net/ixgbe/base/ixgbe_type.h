@@ -4133,6 +4133,7 @@ struct ixgbe_phy_info {
 	u32 id;
 	enum ixgbe_sfp_type sfp_type;
 	bool sfp_setup_needed;
+	u32             settle;
 	u32 revision;
 	enum ixgbe_media_type media_type;
 	u32 phy_semaphore_mask;

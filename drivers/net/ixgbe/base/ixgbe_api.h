@@ -22,6 +22,7 @@ extern s32 ixgbe_init_ops_vf(struct ixgbe_hw *hw);
 
 extern void ixgbe_platform_laser_setup(struct ixgbe_hw *hw);
 extern void ixgbe_platform_setup(struct ixgbe_hw *hw);
+extern int ixgbe_platform_sfp_setup(struct ixgbe_hw *hw, u8 *vendor, u8 oui[3], u8 *partnum);
 
 s32 ixgbe_set_mac_type(struct ixgbe_hw *hw);
 s32 ixgbe_init_hw(struct ixgbe_hw *hw);
