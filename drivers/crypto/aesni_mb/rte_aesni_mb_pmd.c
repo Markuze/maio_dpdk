@@ -1059,6 +1059,11 @@ post_process_mb_job(struct aesni_mb_qp *qp, JOB_AES_HMAC *job)
 							op->sym->session,
 							cryptodev_driver_id);
 
+	if (unlikely(sess == NULL)) {
+		op->status = RTE_CRYPTO_OP_STATUS_INVALID_SESSION;
+		return op;
+	}
+
 	if (likely(op->status == RTE_CRYPTO_OP_STATUS_NOT_PROCESSED)) {
 		switch (job->status) {
 		case STS_COMPLETED:
