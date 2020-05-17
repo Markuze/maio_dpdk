@@ -97,6 +97,8 @@ static void vmxnet3_interrupt_handler(void *param);
 int vmxnet3_logtype_init;
 int vmxnet3_logtype_driver;
 
+static void vmxnet3_process_events(struct rte_eth_dev *dev);
+
 /*
  * The set of PCI devices this driver supports
  */
@@ -180,10 +182,28 @@ gpa_zone_reserve(struct rte_eth_dev *dev, uint32_t size,
 }
 
 /*
- * This function is based on vmxnet3_disable_intr()
+ * Disable the given interrupt
  */
 static void
-vmxnet3_disable_intr(struct vmxnet3_hw *hw)
+vmxnet3_disable_intr(struct vmxnet3_hw *hw, unsigned intr_idx)
+{
+	VMXNET3_WRITE_BAR0_REG(hw, VMXNET3_REG_IMR + intr_idx * 8, 1);
+}
+
+/*
+ * Enable the given interrupt
+ */
+static void
+vmxnet3_enable_intr(struct vmxnet3_hw *hw, unsigned intr_idx)
+{
+	VMXNET3_WRITE_BAR0_REG(hw, VMXNET3_REG_IMR + intr_idx * 8, 0);
+}
+
+/*
+ * Disable all intrs used by the device
+ */
+static void
+vmxnet3_disable_all_intrs(struct vmxnet3_hw *hw)
 {
 	int i;
 
@@ -191,19 +211,21 @@ vmxnet3_disable_intr(struct vmxnet3_hw *hw)
 
 	hw->shared->devRead.intrConf.intrCtrl |= VMXNET3_IC_DISABLE_ALL;
 	for (i = 0; i < hw->num_intrs; i++)
-		VMXNET3_WRITE_BAR0_REG(hw, VMXNET3_REG_IMR + i * 8, 1);
+		vmxnet3_disable_intr(hw, i);
 }
 
+/*
+ * Enable all intrs used by the device, currently only event intr
+ */
 static void
-vmxnet3_enable_intr(struct vmxnet3_hw *hw)
+vmxnet3_enable_all_intrs(struct vmxnet3_hw *hw)
 {
-	int i;
+	Vmxnet3_DSDevRead *devRead = &hw->shared->devRead;
 
 	PMD_INIT_FUNC_TRACE();
 
-	hw->shared->devRead.intrConf.intrCtrl &= ~VMXNET3_IC_DISABLE_ALL;
-	for (i = 0; i < hw->num_intrs; i++)
-		VMXNET3_WRITE_BAR0_REG(hw, VMXNET3_REG_IMR + i * 8, 0);
+	devRead->intrConf.intrCtrl &= ~VMXNET3_IC_DISABLE_ALL;
+	vmxnet3_enable_intr(hw, devRead->intrConf.eventIntrIdx);
 }
 
 /*
@@ -622,12 +644,20 @@ vmxnet3_setup_driver_shared(struct rte_eth_dev *dev)
 	devRead->misc.numRxQueues  = hw->num_rx_queues;
 
 	/*
-	 * Set number of interrupts to 1
-	 * PMD by default disables all the interrupts but this is MUST
-	 * to activate device. It needs at least one interrupt for
-	 * link events to handle
+	 * Set number of interrupts to 2
+	 *
+	 * PMD needs at least one interrupt for link events to handle.
+	 * Programming 2 interrupts in PMD is a workaround for vmxnet3 driver,
+	 * so it can enable event notification in MSI-X vector 0, and disable
+	 * others (i.e. rx/tx completion) mapped to MSI-X vector 1.
+	 *
+         * This workaround is used because Vmxnet3 device does not support
+	 * interrupt mask based on causes (i.e. enable events only). Vmxnet3
+	 * supports interrupt enablement based on interrupt vector indexes. (
+	 * refer vmxnet3_enable_all_intrs() and vmxnet3_disable_all_intrs())
 	 */
-	hw->num_intrs = devRead->intrConf.numIntrs = 1;
+	hw->num_intrs = devRead->intrConf.numIntrs = 2;
+	devRead->intrConf.eventIntrIdx = 0;
 	devRead->intrConf.intrCtrl |= VMXNET3_IC_DISABLE_ALL;
 
 	for (i = 0; i < hw->num_tx_queues; i++) {
@@ -646,7 +676,13 @@ vmxnet3_setup_driver_shared(struct rte_eth_dev *dev)
 		tqd->conf.compRingSize = txq->comp_ring.size;
 		tqd->conf.dataRingSize = txq->data_ring.size;
 		tqd->conf.txDataRingDescSize = txq->txdata_desc_size;
-		tqd->conf.intrIdx      = txq->comp_ring.intr_idx;
+
+		/*
+		 * The index of the MSI-X vector associated with the
+		 * transmit queue is 1. Interrupt index 1 is disabled
+		 * in PMD. Tx completion uses polling.
+		 */
+		tqd->conf.intrIdx = 1;
 		tqd->status.stopped    = TRUE;
 		tqd->status.error      = 0;
 		memset(&tqd->stats, 0, sizeof(tqd->stats));
@@ -665,7 +701,13 @@ vmxnet3_setup_driver_shared(struct rte_eth_dev *dev)
 		rqd->conf.rxRingSize[0]   = rxq->cmd_ring[0].size;
 		rqd->conf.rxRingSize[1]   = rxq->cmd_ring[1].size;
 		rqd->conf.compRingSize    = rxq->comp_ring.size;
-		rqd->conf.intrIdx         = rxq->comp_ring.intr_idx;
+
+		/*
+		 * The index of the MSI-X vector associated with the
+		 * receive queue is 1. Interrupt index 1 is disabled
+		 * in PMD. Rx uses polling.
+		 */
+                rqd->conf.intrIdx = 1;
 		if (VMXNET3_VERSION_GE_3(hw)) {
 			rqd->conf.rxDataRingBasePA = rxq->data_ring.basePA;
 			rqd->conf.rxDataRingDescSize = rxq->data_desc_size;
@@ -728,20 +770,6 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 	if (ret != VMXNET3_SUCCESS)
 		return ret;
 
-	/* check if lsc interrupt feature is enabled */
-	if (dev->data->dev_conf.intr_conf.lsc) {
-		struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
-
-		/* Setup interrupt callback  */
-		rte_intr_callback_register(&pci_dev->intr_handle,
-					   vmxnet3_interrupt_handler, dev);
-
-		if (rte_intr_enable(&pci_dev->intr_handle) < 0) {
-			PMD_INIT_LOG(ERR, "interrupt enable failed");
-			return -EIO;
-		}
-	}
-
 	/* Exchange shared data with device */
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_DSAL,
 			       VMXNET3_GET_ADDR_LO(hw->sharedPA));
@@ -782,7 +810,7 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 	}
 
 	/* Disable interrupts */
-	vmxnet3_disable_intr(hw);
+	vmxnet3_disable_all_intrs(hw);
 
 	/*
 	 * Load RX queues with blank mbufs and update next2fill index for device
@@ -799,18 +827,30 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 	/* Setting proper Rx Mode and issue Rx Mode Update command */
 	vmxnet3_dev_set_rxmode(hw, VMXNET3_RXM_UCAST | VMXNET3_RXM_BCAST, 1);
 
-	if (dev->data->dev_conf.intr_conf.lsc) {
-		vmxnet3_enable_intr(hw);
+        struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
 
-		/*
-		 * Update link state from device since this won't be
-		 * done upon starting with lsc in use. This is done
-		 * only after enabling interrupts to avoid any race
-		 * where the link state could change without an
-		 * interrupt being fired.
-		 */
-		__vmxnet3_dev_link_update(dev, 0);
-	}
+        /* Setup interrupt callback  */
+        rte_intr_callback_register(&pci_dev->intr_handle,
+                                   vmxnet3_interrupt_handler, dev);
+
+        if (rte_intr_enable(&pci_dev->intr_handle) < 0) {
+                PMD_INIT_LOG(ERR, "interrupt enable failed");
+                return -EIO;
+        }
+
+	/* enable event intr */
+	vmxnet3_enable_all_intrs(hw);
+
+	vmxnet3_process_events(dev);
+
+        /*
+         * Update link state from device since this won't be
+         * done upon starting with lsc in use. This is done
+         * only after enabling interrupts to avoid any race
+         * where the link state could change without an
+         * interrupt being fired.
+         */
+        __vmxnet3_dev_link_update(dev, 0);
 
 	return VMXNET3_SUCCESS;
 }
@@ -823,6 +863,7 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 {
 	struct rte_eth_link link;
 	struct vmxnet3_hw *hw = dev->data->dev_private;
+	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -832,16 +873,13 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 	}
 
 	/* disable interrupts */
-	vmxnet3_disable_intr(hw);
+	vmxnet3_disable_all_intrs(hw);
 
-	if (dev->data->dev_conf.intr_conf.lsc) {
-		struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	/* disable intr eventfd mapping */
+	rte_intr_disable(&pci_dev->intr_handle);
 
-		rte_intr_disable(&pci_dev->intr_handle);
-
-		rte_intr_callback_unregister(&pci_dev->intr_handle,
-					     vmxnet3_interrupt_handler, dev);
-	}
+	rte_intr_callback_unregister(&pci_dev->intr_handle,
+				     vmxnet3_interrupt_handler, dev);
 
 	/* quiesce the device first */
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_QUIESCE_DEV);
