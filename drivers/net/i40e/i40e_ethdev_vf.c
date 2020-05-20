@@ -316,6 +316,19 @@ _atomic_set_cmd(struct i40e_vf *vf, enum virtchnl_ops ops)
 #define MAX_TRY_TIMES 200
 #define ASQ_DELAY_MS  10
 
+static void
+i40evf_complete_vf_cmd(struct rte_eth_dev *dev)
+{
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	switch (vf->pend_cmd) {
+	case VIRTCHNL_OP_GET_STATS:
+		vf->stats = *(struct i40e_eth_stats *)vf->aq_resp;
+		break;
+	default:
+		break;
+	}
+}
+
 static int
 i40evf_execute_vf_cmd(struct rte_eth_dev *dev, struct vf_cmd_info *args)
 {
@@ -343,6 +356,7 @@ i40evf_execute_vf_cmd(struct rte_eth_dev *dev, struct vf_cmd_info *args)
 
 	switch (args->ops) {
 	case VIRTCHNL_OP_RESET_VF:
+	case VIRTCHNL_OP_GET_STATS:
 		/*no need to process in this function */
 		err = 0;
 		break;
@@ -900,7 +914,7 @@ i40evf_query_stats(struct rte_eth_dev *dev, struct i40e_eth_stats **pstats)
 		*pstats = NULL;
 		return err;
 	}
-	*pstats = (struct i40e_eth_stats *)args.out_buffer;
+	*pstats = &vf->stats;
 	return 0;
 }
 
@@ -1420,6 +1434,7 @@ i40evf_handle_aq_msg(struct rte_eth_dev *dev)
 				/* read message and it's expected one */
 				if (msg_opc == vf->pend_cmd) {
 					vf->cmd_retval = msg_ret;
+					i40evf_complete_vf_cmd(dev);
 					/* prevent compiler reordering */
 					rte_compiler_barrier();
 					_clear_cmd(vf);
