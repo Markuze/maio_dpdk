@@ -1819,12 +1819,14 @@ i40evf_rxq_init(struct rte_eth_dev *dev, struct i40e_rx_queue *rxq)
 	len = rxq->rx_buf_len * I40E_MAX_CHAINED_RX_BUFFERS;
 	rxq->max_pkt_len = RTE_MIN(len,
 		dev_data->dev_conf.rxmode.max_rx_pkt_len);
+	if (rxq->max_pkt_len == dev_data->dev_conf.rxmode.max_rx_pkt_len)
+		rxq->max_pkt_len = RTE_ETHER_MAX_LEN + 8;
 
 	/**
 	 * Check if the jumbo frame and maximum packet length are set correctly
 	 */
 	if (dev_data->dev_conf.rxmode.offloads & DEV_RX_OFFLOAD_JUMBO_FRAME) {
-		if (rxq->max_pkt_len <= RTE_ETHER_MAX_LEN ||
+		if (rxq->max_pkt_len <= RTE_ETHER_MAX_LEN + 8 ||
 		    rxq->max_pkt_len > I40E_FRAME_SIZE_MAX) {
 			PMD_DRV_LOG(ERR, "maximum packet length must be "
 				"larger than %u and smaller than %u, as jumbo "
@@ -1834,7 +1836,7 @@ i40evf_rxq_init(struct rte_eth_dev *dev, struct i40e_rx_queue *rxq)
 		}
 	} else {
 		if (rxq->max_pkt_len < RTE_ETHER_MIN_LEN ||
-		    rxq->max_pkt_len > RTE_ETHER_MAX_LEN) {
+		    rxq->max_pkt_len > RTE_ETHER_MAX_LEN + 8) {
 			PMD_DRV_LOG(ERR, "maximum packet length must be "
 				"larger than %u and smaller than %u, as jumbo "
 				"frame is disabled",
