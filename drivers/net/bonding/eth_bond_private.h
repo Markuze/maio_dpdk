@@ -88,6 +88,7 @@ struct bond_slave_details {
 	struct rte_ether_addr persisted_mac_addr;
 
 	uint16_t reta_size;
+	uint32_t rsts;
 };
 
 struct rte_flow {

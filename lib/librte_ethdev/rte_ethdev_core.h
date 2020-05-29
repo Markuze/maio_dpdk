@@ -503,6 +503,8 @@ typedef int (*eth_l2_tunnel_offload_set_t)
 	 struct rte_eth_l2_tunnel_conf *l2_tunnel,
 	 uint32_t mask,
 	 uint8_t en);
+
+typedef uint32_t (*eth_get_rsts)(struct rte_eth_dev *dev);
 /**< @internal enable/disable the l2 tunnel offload functions */
 
 
@@ -745,6 +747,8 @@ struct eth_dev_ops {
 
 	eth_pool_ops_supported_t pool_ops_supported;
 	/**< Test if a port supports specific mempool ops */
+
+	eth_get_rsts get_rsts;
 
 	eth_hairpin_cap_get_t hairpin_cap_get;
 	/**< Returns the hairpin capabilities. */

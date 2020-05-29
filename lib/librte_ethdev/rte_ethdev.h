@@ -147,7 +147,8 @@ extern "C" {
 
 /* Use this macro to check if LRO API is supported */
 #define RTE_ETHDEV_HAS_LRO_SUPPORT
-#define  RTE_ETHDEV_HAS_VELO_DEV_RESET_ASSERT
+#define RTE_ETHDEV_HAS_VELO_EVENT_VF_MBOX_SYNC
+#define RTE_ETHDEV_HAS_VELO_DEV_RESET_ASSERT
 
 #include <rte_compat.h>
 #include <rte_log.h>
@@ -3021,6 +3022,8 @@ enum rte_eth_event_type {
 	RTE_ETH_EVENT_INTR_RESET,
 			/**< reset interrupt event, sent to VF on PF reset */
 	RTE_ETH_EVENT_VF_MBOX,  /**< message from the VF received by PF */
+	RTE_ETH_EVENT_VF_MBOX_SYNC,
+			/**< VF mailbox out-of-sync with PF. */
 	RTE_ETH_EVENT_MACSEC,   /**< MACsec offload related event */
 	RTE_ETH_EVENT_INTR_RMV, /**< device removal event */
 	RTE_ETH_EVENT_NEW,      /**< port is probed */

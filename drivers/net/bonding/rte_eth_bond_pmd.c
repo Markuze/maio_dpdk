@@ -19,6 +19,7 @@
 #include <rte_alarm.h>
 #include <rte_cycles.h>
 #include <rte_string_fns.h>
+#include <rte_bus_pci.h>
 
 #include "rte_eth_bond.h"
 #include "eth_bond_private.h"
@@ -1902,6 +1903,7 @@ slave_add(struct bond_dev_private *internals,
 		slave_details->link_status_poll_enabled = 1;
 	}
 
+	slave_details->rsts = 0;
 	slave_details->link_status_wait_to_complete = 0;
 	/* clean tlb_last_obytes when adding port for bonding device */
 	memcpy(&(slave_details->persisted_mac_addr), slave_eth_dev->data->mac_addrs,
@@ -2314,6 +2316,7 @@ bond_ethdev_slave_link_status_change_monitor(void *cb_arg)
 	/* Default value for polling slave found is true as we don't want to
 	 * disable the polling thread if we cannot get the lock */
 	int i, polling_slave_found = 1;
+	uint32_t rsts;
 
 	if (cb_arg == NULL)
 		return;
@@ -2341,6 +2344,23 @@ bond_ethdev_slave_link_status_change_monitor(void *cb_arg)
 			/* Update slave link status */
 			(*slave_ethdev->dev_ops->link_update)(slave_ethdev,
 					internals->slaves[i].link_status_wait_to_complete);
+
+			/* XXX VeloCloud interrupt -- needed to check if the VF mailbox is no
+			 * longer communicating correctly with the host PF based on PF reset. 
+			 * If PF reset, send an interrupt indicating the type for action,
+			 * for what should be a rte_eth_dev_reset() action by the host process.
+			 */
+			#define PCI_INTEL_VENDOR_ID	0x8086
+			#define PCI_DEV_ID_82599_VF	0x10ED
+			if (((RTE_DEV_TO_PCI(slave_ethdev->device)->id.vendor_id == PCI_INTEL_VENDOR_ID) &&
+				(RTE_DEV_TO_PCI(slave_ethdev->device)->id.device_id == PCI_DEV_ID_82599_VF))) {
+
+				rsts = (*slave_ethdev->dev_ops->get_rsts)(slave_ethdev);
+				if (internals->slaves[i].rsts < rsts) {
+					internals->slaves[i].rsts = rsts;
+					_rte_eth_dev_callback_process(slave_ethdev, RTE_ETH_EVENT_VF_MBOX_SYNC, NULL);
+				}
+			}
 
 			/* if link status has changed since last checked then call lsc
 			 * event callback */

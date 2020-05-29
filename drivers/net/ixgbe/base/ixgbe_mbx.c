@@ -281,13 +281,16 @@ STATIC u32 ixgbe_read_v2p_mailbox(struct ixgbe_hw *hw)
  *  This function is used to check for the read to clear bits within
  *  the V2P mailbox.
  **/
-STATIC s32 ixgbe_check_for_bit_vf(struct ixgbe_hw *hw, u32 mask)
+STATIC s32 ixgbe_check_for_bit_vf(struct ixgbe_hw *hw, u32 mask, u32 *reg_bits)
 {
 	u32 v2p_mailbox = ixgbe_read_v2p_mailbox(hw);
 	s32 ret_val = IXGBE_ERR_MBX;
 
 	if (v2p_mailbox & mask)
 		ret_val = IXGBE_SUCCESS;
+
+	if (reg_bits != NULL)
+		*reg_bits = v2p_mailbox;
 
 	hw->mbx.v2p_mailbox &= ~mask;
 
@@ -308,7 +311,7 @@ STATIC s32 ixgbe_check_for_msg_vf(struct ixgbe_hw *hw, u16 mbx_id)
 	UNREFERENCED_1PARAMETER(mbx_id);
 	DEBUGFUNC("ixgbe_check_for_msg_vf");
 
-	if (!ixgbe_check_for_bit_vf(hw, IXGBE_VFMAILBOX_PFSTS)) {
+	if (!ixgbe_check_for_bit_vf(hw, IXGBE_VFMAILBOX_PFSTS, NULL)) {
 		ret_val = IXGBE_SUCCESS;
 		hw->mbx.stats.reqs++;
 	}
@@ -330,7 +333,7 @@ STATIC s32 ixgbe_check_for_ack_vf(struct ixgbe_hw *hw, u16 mbx_id)
 	UNREFERENCED_1PARAMETER(mbx_id);
 	DEBUGFUNC("ixgbe_check_for_ack_vf");
 
-	if (!ixgbe_check_for_bit_vf(hw, IXGBE_VFMAILBOX_PFACK)) {
+	if (!ixgbe_check_for_bit_vf(hw, IXGBE_VFMAILBOX_PFACK, NULL)) {
 		ret_val = IXGBE_SUCCESS;
 		hw->mbx.stats.acks++;
 	}
@@ -347,19 +350,25 @@ STATIC s32 ixgbe_check_for_ack_vf(struct ixgbe_hw *hw, u16 mbx_id)
  **/
 STATIC s32 ixgbe_check_for_rst_vf(struct ixgbe_hw *hw, u16 mbx_id)
 {
+	u32 reg_val;
 	s32 ret_val = IXGBE_ERR_MBX;
 
 	UNREFERENCED_1PARAMETER(mbx_id);
 	DEBUGFUNC("ixgbe_check_for_rst_vf");
 
 	if (!ixgbe_check_for_bit_vf(hw, (IXGBE_VFMAILBOX_RSTD |
-	    IXGBE_VFMAILBOX_RSTI))) {
+	    IXGBE_VFMAILBOX_RSTI), &reg_val)) {
+
 		ret_val = IXGBE_SUCCESS;
+		if (reg_val & IXGBE_VFMAILBOX_RSTD)
+			hw->mbx.stats.rsts_cmpl++;
+
 		hw->mbx.stats.rsts++;
 	}
 
 	return ret_val;
 }
+
 
 /**
  *  ixgbe_obtain_mbx_lock_vf - obtain mailbox lock
@@ -492,6 +501,7 @@ void ixgbe_init_mbx_params_vf(struct ixgbe_hw *hw)
 	mbx->stats.reqs = 0;
 	mbx->stats.acks = 0;
 	mbx->stats.rsts = 0;
+	mbx->stats.rsts_cmpl = 0;
 }
 
 STATIC s32 ixgbe_check_for_bit_pf(struct ixgbe_hw *hw, u32 mask, s32 index)

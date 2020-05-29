@@ -385,6 +385,7 @@ static int ixgbe_dev_udp_tunnel_port_del(struct rte_eth_dev *dev,
 static int ixgbe_filter_restore(struct rte_eth_dev *dev);
 static void ixgbe_l2_tunnel_conf(struct rte_eth_dev *dev);
 static int ixgbe_wait_for_link_up(struct ixgbe_hw *hw);
+static u32 ixgbevf_get_rsts_cmpl(struct rte_eth_dev *dev);
 
 /*
  * Define VF Stats MACRO for Non "cleared on read" register
@@ -657,6 +658,7 @@ static const struct eth_dev_ops ixgbevf_eth_dev_ops = {
 	.reta_query           = ixgbe_dev_rss_reta_query,
 	.rss_hash_update      = ixgbe_dev_rss_hash_update,
 	.rss_hash_conf_get    = ixgbe_dev_rss_hash_conf_get,
+	.get_rsts             = ixgbevf_get_rsts_cmpl,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -4563,6 +4565,13 @@ static int
 ixgbevf_dev_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
 	return ixgbe_dev_link_update_share(dev, wait_to_complete, 1);
+}
+
+static u32
+ixgbevf_get_rsts_cmpl(struct rte_eth_dev *dev)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	return hw->mbx.stats.rsts_cmpl;
 }
 
 static int

@@ -4184,6 +4184,7 @@ struct ixgbe_mbx_stats {
 	u32 acks;
 	u32 reqs;
 	u32 rsts;
+	u32 rsts_cmpl;
 };
 
 struct ixgbe_mbx_info {
