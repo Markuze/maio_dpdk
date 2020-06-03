@@ -3428,7 +3428,9 @@ static void ixgbe_vc_check_link_and_set_led(struct ixgbe_hw *hw,
 static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
 {
 	uint32_t sfp_event;
-
+	struct rte_eth_dev *eth_dev = (struct rte_eth_dev *)hw->back;
+	struct ixgbe_adapter *adapter = container_of(hw,
+                                                struct ixgbe_adapter, hw);
 	// handle SFP events;
 
 	sfp_event = hw->phy.ops.sfp_event(hw);
@@ -3444,13 +3446,20 @@ static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
 		break;
 	case IXGBE_SFP_LOS:
 		PMD_DRV_LOG(DEBUG, "SFP signal loss");
+		hw->link.link_up = 0;
+		eth_dev->data->dev_link.link_status = ETH_LINK_DOWN;
+		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 		break;
 	case IXGBE_SFP_DOS:
+		hw->link.link_up = 1;
+		eth_dev->data->dev_link.link_status = ETH_LINK_UP;
+		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 		PMD_DRV_LOG(DEBUG, "SFP signal detected");
 		break;
 	case IXGBE_SFP_REMOVED:
 		PMD_DRV_LOG(DEBUG, "SFP removed");
 		hw->phy.sfp_present = 0;
+		hw->link.link_up = 0;
 		if (hw->mac.ops.disable_tx_laser)
 			hw->mac.ops.disable_tx_laser(hw);
                 if(hw->phy.ops.link_led) {
@@ -3461,10 +3470,13 @@ static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
 	case IXGBE_SFP_INSERTED:
 		PMD_DRV_LOG(DEBUG, "SFP inserted");
 		hw->phy.sfp_present = 1;
+		hw->link.link_up = 0;
 		if (hw->mac.ops.enable_tx_laser)
 			hw->mac.ops.enable_tx_laser(hw);
 		break;
 	}
+
+	PMD_DRV_LOG(DEBUG,"sfp_event:%x",sfp_event);
 	return sfp_event;
 }
 

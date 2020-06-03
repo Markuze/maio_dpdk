@@ -178,6 +178,8 @@ STATIC s32 ixgbe_vc6x0_sfp_event(struct ixgbe_hw *hw)
 			event = IXGBE_SFP_LOS;
 		else if(los == 0x20)
 			event = IXGBE_SFP_DOS;
+	} else {
+		pipe |= 0x3c;
 	}
 
 	hw->phy.sfp_event_pipe = pipe;

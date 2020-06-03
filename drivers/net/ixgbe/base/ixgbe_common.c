@@ -4149,6 +4149,12 @@ s32 ixgbe_check_mac_link_generic(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 
 	DEBUGFUNC("ixgbe_check_mac_link_generic");
 
+	if(hw->link.link_up == 0){
+		*link_up = false;
+		*speed = IXGBE_LINK_SPEED_UNKNOWN;
+		return 0;
+	}
+
 	/* If Crosstalk fix enabled do the sanity check of making sure
 	 * the SFP+ cage is full.
 	 */
