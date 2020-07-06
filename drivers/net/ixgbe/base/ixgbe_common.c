@@ -4146,11 +4146,14 @@ s32 ixgbe_check_mac_link_generic(struct ixgbe_hw *hw, ixgbe_link_speed *speed,
 {
 	u32 links_reg, links_orig;
 	u32 i;
+	struct ixgbe_adapter *adapter = container_of(hw,
+						struct ixgbe_adapter, hw);
 
 	DEBUGFUNC("ixgbe_check_mac_link_generic");
 
-	if(hw->link.link_up == 0){
+	if(adapter->flags2 & IXGBE_FLAG2_SFP_RXLOS){
 		*link_up = false;
+		 hw->link.link_up = 0;
 		*speed = IXGBE_LINK_SPEED_UNKNOWN;
 		return 0;
 	}

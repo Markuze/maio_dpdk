@@ -6,6 +6,8 @@
 #define _IXGBE_COMMON_H_
 
 #include "ixgbe_type.h"
+#include "../ixgbe_ethdev.h"
+
 #define IXGBE_WRITE_REG64(hw, reg, value) \
 	do { \
 		IXGBE_WRITE_REG(hw, reg, (u32) value); \

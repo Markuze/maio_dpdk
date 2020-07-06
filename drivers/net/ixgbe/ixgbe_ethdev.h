@@ -513,7 +513,10 @@ struct ixgbe_adapter {
 	uint8_t mac_ctrl_frame_fwd;
 	rte_atomic32_t link_thread_running;
 	pthread_t link_thread_tid;
+	uint8_t	flags2;
 };
+
+#define IXGBE_FLAG2_SFP_RXLOS	(1u << 30)
 
 struct ixgbe_vf_representor {
 	uint16_t vf_id;

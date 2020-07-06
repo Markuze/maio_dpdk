@@ -3448,18 +3448,24 @@ static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
 		PMD_DRV_LOG(DEBUG, "SFP signal loss");
 		hw->link.link_up = 0;
 		eth_dev->data->dev_link.link_status = ETH_LINK_DOWN;
+		adapter->flags2 |= IXGBE_FLAG2_SFP_RXLOS;
 		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 		break;
 	case IXGBE_SFP_DOS:
 		hw->link.link_up = 1;
+		ixgbe_vc_check_link_and_set_led(hw, false);
 		eth_dev->data->dev_link.link_status = ETH_LINK_UP;
 		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
+		adapter->flags2 &= ~IXGBE_FLAG2_SFP_RXLOS;
 		PMD_DRV_LOG(DEBUG, "SFP signal detected");
 		break;
 	case IXGBE_SFP_REMOVED:
 		PMD_DRV_LOG(DEBUG, "SFP removed");
 		hw->phy.sfp_present = 0;
 		hw->link.link_up = 0;
+		eth_dev->data->dev_link.link_status = ETH_LINK_DOWN;
+		adapter->flags2 |= IXGBE_FLAG2_SFP_RXLOS;
+		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 		if (hw->mac.ops.disable_tx_laser)
 			hw->mac.ops.disable_tx_laser(hw);
                 if(hw->phy.ops.link_led) {
@@ -3471,6 +3477,9 @@ static uint32_t ixgbe_sfp_event_task(struct ixgbe_hw *hw)
 		PMD_DRV_LOG(DEBUG, "SFP inserted");
 		hw->phy.sfp_present = 1;
 		hw->link.link_up = 0;
+		eth_dev->data->dev_link.link_status = ETH_LINK_DOWN;
+		adapter->flags2 |= IXGBE_FLAG2_SFP_RXLOS;
+		adapter->intr.flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 		if (hw->mac.ops.enable_tx_laser)
 			hw->mac.ops.enable_tx_laser(hw);
 		break;
