@@ -1906,6 +1906,7 @@ s32 ixgbe_get_link_capabilities_X550em(struct ixgbe_hw *hw,
 				 	IXGBE_LINK_SPEED_1GB_FULL;
 			else
 				*speed = IXGBE_LINK_SPEED_10GB_FULL;
+			*autoneg = true;
 			break;
 		}
 	} else {

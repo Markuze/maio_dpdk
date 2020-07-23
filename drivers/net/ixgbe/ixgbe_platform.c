@@ -212,6 +212,29 @@ STATIC s32 ixgbe_vc6x0_sfp_led(struct ixgbe_hw *hw, u32 speed)
 	return 0;
 }
 
+STATIC s32 ixgbe_vc6x5_sfp_led(struct ixgbe_hw *hw, u32 speed)
+{
+	int color;
+	if(hw->bus.lan_id > 1)
+		return(IXGBE_ERR_PARAM);
+
+	color = 0;
+	switch(speed) {
+	case IXGBE_LINK_SPEED_10GB_FULL:
+		color = 0;
+		break;
+	case IXGBE_LINK_SPEED_1GB_FULL:
+		color = 1;
+		break;
+	default:
+		return 0;
+	}
+
+    ixgbe_gpio_set_value(hw, "color", color);
+
+    return 0;
+}
+
 // velocloud laser setup;
 
 STATIC void ixgbe_vc_laser_setup(struct ixgbe_hw *hw)
@@ -282,7 +305,7 @@ STATIC void ixgbe_vc_setup(struct ixgbe_hw *hw)
 			hw->phy.speeds_sku |= IXGBE_LINK_SPEED_10_FULL;
 			hw->phy.speeds_sku |= IXGBE_LINK_SPEED_100_FULL;
 			hw->phy.ops.sfp_event = ixgbe_vc6x0_sfp_event;
-			hw->phy.ops.link_led = NULL;
+			hw->phy.ops.link_led = ixgbe_vc6x5_sfp_led;
 			hw->phy.sfp_present = 0;
 			ixgbe_vc6x0_sfp_led(hw, IXGBE_LINK_SPEED_UNKNOWN);
 		}
