@@ -210,6 +210,9 @@ struct rte_mempool_info {
 	unsigned int contig_block_size;
 } __rte_cache_aligned;
 
+typedef void (*rte_mempool_check_cb_t)(const struct rte_mempool *mp,
+	void * const *obj_table_const, unsigned n, int free);
+
 /**
  * The RTE mempool structure.
  */
@@ -253,6 +256,7 @@ struct rte_mempool {
 	struct rte_mempool_objhdr_list elt_list; /**< List of objects in pool */
 	uint32_t nb_mem_chunks;          /**< Number of memory chunks */
 	struct rte_mempool_memhdr_list mem_list; /**< List of memory chunks */
+	rte_mempool_check_cb_t check_cb;
 
 #ifdef RTE_LIBRTE_MEMPOOL_DEBUG
 	/** Per-lcore statistics. */
@@ -1362,6 +1366,9 @@ rte_mempool_generic_put(struct rte_mempool *mp, void * const *obj_table,
 			unsigned int n, struct rte_mempool_cache *cache)
 {
 	__mempool_check_cookies(mp, obj_table, n, 0);
+	if (unlikely(mp->check_cb)) {
+		mp->check_cb(mp, obj_table, n, 1);
+	}
 	__mempool_generic_put(mp, obj_table, n, cache);
 }
 
@@ -1504,8 +1511,12 @@ rte_mempool_generic_get(struct rte_mempool *mp, void **obj_table,
 {
 	int ret;
 	ret = __mempool_generic_get(mp, obj_table, n, cache);
-	if (ret == 0)
+	if (ret == 0) {
 		__mempool_check_cookies(mp, obj_table, n, 1);
+		if (unlikely(mp->check_cb)) {
+			mp->check_cb(mp, obj_table, n, 0);
+		}
+	}
 	return ret;
 }
 
@@ -1783,6 +1794,12 @@ void rte_mempool_walk(void (*func)(struct rte_mempool *, void *arg),
 __rte_experimental
 int
 rte_mempool_get_page_size(struct rte_mempool *mp, size_t *pg_sz);
+
+static inline void rte_mempool_set_check_cb(struct rte_mempool *mp,
+	rte_mempool_check_cb_t check_cb)
+{
+	mp->check_cb = check_cb;
+}
 
 #ifdef __cplusplus
 }

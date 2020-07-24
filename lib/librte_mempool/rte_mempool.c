@@ -880,6 +880,7 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 	mp->private_data_size = private_data_size;
 	STAILQ_INIT(&mp->elt_list);
 	STAILQ_INIT(&mp->mem_list);
+	mp->check_cb = NULL;
 
 	/*
 	 * local_cache pointer is set even if cache_size is zero.
