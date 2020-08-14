@@ -2690,26 +2690,26 @@ i40e_rx_queue_config(struct i40e_rx_queue *rxq)
 			rxq->rx_buf_len), data->dev_conf.rxmode.max_rx_pkt_len);
 
 	if (rxq->max_pkt_len == data->dev_conf.rxmode.max_rx_pkt_len)
-		rxq->max_pkt_len = RTE_ETHER_MAX_LEN + 8;
+		rxq->max_pkt_len = I40E_MAX_NONJUMBO_FRAME_SZ;
 
 	if (data->dev_conf.rxmode.offloads & DEV_RX_OFFLOAD_JUMBO_FRAME) {
-		if (rxq->max_pkt_len <= RTE_ETHER_MAX_LEN + 8 ||
+		if (rxq->max_pkt_len <= I40E_MAX_NONJUMBO_FRAME_SZ ||
 			rxq->max_pkt_len > I40E_FRAME_SIZE_MAX) {
 			PMD_DRV_LOG(ERR, "maximum packet length must "
 				    "be larger than %u and smaller than %u,"
 				    "as jumbo frame is enabled",
-				    (uint32_t)RTE_ETHER_MAX_LEN,
+				    (uint32_t)I40E_MAX_NONJUMBO_FRAME_SZ,
 				    (uint32_t)I40E_FRAME_SIZE_MAX);
 			return I40E_ERR_CONFIG;
 		}
 	} else {
 		if (rxq->max_pkt_len < RTE_ETHER_MIN_LEN ||
-			rxq->max_pkt_len > RTE_ETHER_MAX_LEN + 8) {
+			rxq->max_pkt_len > I40E_MAX_NONJUMBO_FRAME_SZ) {
 			PMD_DRV_LOG(ERR, "maximum packet length must be "
 				    "larger than %u and smaller than %u, "
 				    "as jumbo frame is disabled",
 				    (uint32_t)RTE_ETHER_MIN_LEN,
-				    (uint32_t)RTE_ETHER_MAX_LEN);
+				    (uint32_t)I40E_MAX_NONJUMBO_FRAME_SZ);
 			return I40E_ERR_CONFIG;
 		}
 	}
