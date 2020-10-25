@@ -631,10 +631,12 @@ qat_enqueue_op_burst(void *qp, void **ops, uint16_t nb_ops)
 				tmp_qp->op_cookies[tail / queue->msg_size],
 				tmp_qp->qat_dev_gen);
 #endif
+#ifdef RTE_LIBRTE_COMPRESSDEV
 		} else if (tmp_qp->service_type == QAT_SERVICE_COMPRESSION) {
 			ret = qat_comp_build_request(*ops, base_addr + tail,
 				tmp_qp->op_cookies[tail / queue->msg_size],
 				tmp_qp->qat_dev_gen);
+#endif
 		} else if (tmp_qp->service_type == QAT_SERVICE_ASYMMETRIC) {
 #ifdef BUILD_QAT_ASYM
 			ret = qat_asym_build_request(*ops, base_addr + tail,
