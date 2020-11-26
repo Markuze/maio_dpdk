@@ -295,6 +295,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         struct rte_eth_dev *eth_dev  __rte_unused = NULL;
         const char *name __rte_unused;
 
+	printf("Hello vdev :)[%s]\n", __FUNCTION__);
         MAIO_LOG(INFO, "Initializing pmd_maio for %s\n",
                 rte_vdev_device_name(dev));
         name = rte_vdev_device_name(dev);
