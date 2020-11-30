@@ -247,7 +247,9 @@ static const struct eth_dev_ops ops = {
 /*TODO: FiXME
 	1. RX Func.
 */
-static uint16_t eth_maio_rx(void *queue __rte_unused, struct rte_mbuf **bufs __rte_unused, uint16_t nb_pkts __rte_unused)
+static uint16_t eth_maio_rx(void *queue __rte_unused,
+				struct rte_mbuf **bufs __rte_unused,
+				uint16_t nb_pkts __rte_unused)
 {
 	return 0;
 }
@@ -255,25 +257,84 @@ static uint16_t eth_maio_rx(void *queue __rte_unused, struct rte_mbuf **bufs __r
 /*TODO: FiXME
 	1. RX Func.
 */
-static uint16_t eth_maio_tx(void *queue __rte_unused, struct rte_mbuf **bufs __rte_unused, uint16_t nb_pkts __rte_unused)
+static uint16_t eth_maio_tx(void *queue __rte_unused,
+				struct rte_mbuf **bufs __rte_unused,
+				uint16_t nb_pkts __rte_unused)
 {
 	return 0;
 }
 
-static struct rte_eth_dev *init_internals(struct rte_vdev_device *dev)
+static inline int get_iface_info(const char *if_name,
+               struct rte_ether_addr *eth_addr,
+               int *if_index)
 {
+        struct ifreq ifr;
+        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 
-	struct rte_eth_dev *eth_dev = rte_eth_vdev_allocate(dev, 0);
-	struct pmd_internals *internals = rte_zmalloc_socket("maio_pmd_name", sizeof(*internals), 0, dev->device.numa_node);
+        if (sock < 0)
+                return -1;
 
+        strlcpy(ifr.ifr_name, if_name, IFNAMSIZ);
+        if (ioctl(sock, SIOCGIFINDEX, &ifr))
+                goto error;
+
+        *if_index = ifr.ifr_ifindex;
+
+        if (ioctl(sock, SIOCGIFHWADDR, &ifr))
+                goto error;
+
+        rte_memcpy(eth_addr, ifr.ifr_hwaddr.sa_data, RTE_ETHER_ADDR_LEN);
+
+        close(sock);
+        return 0;
+
+error:
+        close(sock);
+        return -1;
+}
+
+
+static inline int setup_maio_matrix(struct pmd_internals *internals)
+{
+	        internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
+							RTE_CACHE_LINE_SIZE, rte_socket_id());
+		if ( ! internals->matrix) {
+			MAIO_LOG(ERR, "Failed to init internals\n");
+			return -EINVAL;
+		}
+		/* TODO: Register META to Kernel */
+
+		return 0;
+}
+
+static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *dev)
+{
+	int ret;
+	struct pmd_internals *internals;
+	struct rte_eth_dev *eth_dev = rte_eth_vdev_allocate(dev, sizeof(*internals));
+
+	internals = eth_dev->data->dev_private;
         if (eth_dev == NULL || internals == NULL) {
+                MAIO_LOG(ERR, "Failed to init internals\n");
+                return NULL;
+	}
+
+/*
+	ret = get_iface_info(if_name, &internals->eth_addr, &internals->if_index);
+        if (ret) {
                 MAIO_LOG(ERR, "Failed to init internals [ignore leak]\n");
+                return NULL;
+	}
+*/
+	ret = setup_maio_matrix(internals);
+        if (ret) {
+                MAIO_LOG(ERR, "Failed to init MATRIX [ignore leak]\n");
                 return NULL;
 	}
 
         eth_dev->data->dev_private = internals;
         eth_dev->data->dev_link = pmd_link;
-        //eth_dev->data->mac_addrs = &internals->eth_addr;
+        eth_dev->data->mac_addrs = &internals->eth_addr;
         eth_dev->dev_ops = &ops;
         eth_dev->rx_pkt_burst = eth_maio_rx;
         eth_dev->tx_pkt_burst = eth_maio_tx;
@@ -324,7 +385,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
                 return -EINVAL;
         }
 #endif
-        eth_dev = init_internals(dev);
+        eth_dev = maio_init_internals(dev);
         if (eth_dev == NULL) {
                 MAIO_LOG(ERR, "Failed to init internals\n");
                 return -1;
