@@ -54,13 +54,13 @@ static const struct rte_eth_link pmd_link = {
 /* This function gets called when the current port gets stopped. */
 static void eth_dev_stop(struct rte_eth_dev *dev)
 {
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
         dev->data->dev_link.link_status = ETH_LINK_DOWN;
 }
 
 static int eth_dev_start(struct rte_eth_dev *dev)
 {
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 	dev->data->dev_link.link_status = ETH_LINK_UP;
 
 	return 0;
@@ -70,12 +70,12 @@ static void eth_dev_close(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals __rte_unused = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "Closing MAIO ethdev on numa socket %u\n", rte_socket_id());
+	MAIO_LOG(ERR, "Closing MAIO ethdev on numa socket %u\n", rte_socket_id());
 }
 
 static int eth_dev_configure(struct rte_eth_dev *dev __rte_unused)
 {
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
         return 0;
 }
 
@@ -84,7 +84,7 @@ static int eth_dev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_in
 {
 	struct pmd_internals *internals = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	dev_info->if_index = internals->if_index;
 	dev_info->max_mac_addrs = 1;
@@ -110,7 +110,7 @@ static int eth_dev_mtu_set(struct rte_eth_dev *dev, uint16_t mtu)
 	int ret;
 	int s;
 
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	s = socket(PF_INET, SOCK_DGRAM, 0);
 	if (s < 0)
@@ -129,7 +129,7 @@ static int eth_dev_change_flags(char *if_name, uint32_t flags, uint32_t mask)
 	int ret = 0;
 	int s;
 
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	s = socket(PF_INET, SOCK_DGRAM, 0);
 	if (s < 0)
@@ -155,7 +155,7 @@ static int eth_dev_promiscuous_enable(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	return eth_dev_change_flags(internals->if_name, IFF_PROMISC, ~0);
 }
@@ -164,7 +164,7 @@ static int eth_dev_promiscuous_disable(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	return eth_dev_change_flags(internals->if_name, 0, ~IFF_PROMISC);
 }
@@ -179,7 +179,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 {
 	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "FIXME %d\n", __LINE__);
+	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
 }
@@ -193,20 +193,20 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 {
 	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "FIXME %d\n", __LINE__);
+	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
 }
 
 static void eth_queue_release(void *q __rte_unused)
 {
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 }
 
 static int eth_link_update(struct rte_eth_dev *dev __rte_unused,
 				int wait_to_complete __rte_unused)
 {
-	MAIO_LOG(INFO, "%d\n", __LINE__);
+	MAIO_LOG(ERR, "%d\n", __LINE__);
 	return 0;
 }
 
@@ -214,7 +214,7 @@ static int eth_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats __
 {
 	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "FIXME %d\n", __LINE__);
+	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
 }
@@ -223,7 +223,7 @@ static int eth_stats_reset(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals __rte_unused = dev->data->dev_private;
 
-	MAIO_LOG(INFO, "FIXME %d\n", __LINE__);
+	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
 }
@@ -331,7 +331,12 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 		return -ENODEV;
 	}
 
-	len  = snprintf(write_buffer, 64, "%llu\n", (unsigned long long)internals->matrix);
+	len  = snprintf(write_buffer, 64, "%llx %lu\n", (unsigned long long)internals->matrix,
+							sizeof(struct user_matrix) + DATA_MTRX_SZ);
+	len = write(mtrx_proc, write_buffer, len);
+
+	printf(">>> Sent %s\n", write_buffer);
+/*
 	mz = rte_memzone_reserve_aligned("maio_mem",
 					 1024 * 1024,
 					rte_socket_id(), RTE_MEMZONE_IOVA_CONTIG,
@@ -340,7 +345,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
 		return -ENOMEM;
 	}
-
+*/
 	//rte_malloc_dump_stats(stdout, NULL);
 	rte_memzone_dump(stdout);
 	//rte_malloc_dump_heaps(stdout);
@@ -452,7 +457,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         const char *name;
 
 	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
-        MAIO_LOG(INFO, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
+        MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
@@ -493,7 +498,7 @@ static int rte_pmd_maio_remove(struct rte_vdev_device *dev)
 {
         struct rte_eth_dev *eth_dev __rte_unused = NULL;
 
-        MAIO_LOG(INFO, "Removing MAIO ethdev on numa socket %u\n",
+        MAIO_LOG(ERR, "Removing MAIO ethdev on numa socket %u\n",
                 rte_socket_id());
 
         if (dev == NULL)
