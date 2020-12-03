@@ -3,6 +3,7 @@
 
 #include <rte_common.h>
 
+#define MTRX_PROC_NAME			"/proc/maio/mtrx"
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
@@ -14,8 +15,14 @@
 
 #define DATA_MTRX_SZ ((ETH_MAIO_DFLT_NUM_DESCS * NUM_MAX_RINGS) * NUM_RING_TYPES * RE_SZ)
 
+struct in_params {
+	char if_name[IFNAMSIZ];
+	int q_cnt;
+};
+
 struct pmd_internals {
 	int if_index;
+	int q_cnt;
 	char if_name[IFNAMSIZ];
 	struct rte_ether_addr eth_addr;
 	struct user_matrix *matrix;

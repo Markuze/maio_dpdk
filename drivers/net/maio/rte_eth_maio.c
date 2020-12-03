@@ -1,7 +1,9 @@
 #include <unistd.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include <sys/ioctl.h>
 #include <linux/sockios.h>
@@ -264,23 +266,26 @@ static uint16_t eth_maio_tx(void *queue __rte_unused,
 	return 0;
 }
 
-static inline int get_iface_info(const char *if_name,
-               struct rte_ether_addr *eth_addr,
-               int *if_index)
+static inline int get_iface_info(const char *if_name, struct rte_ether_addr *eth_addr, int *if_index)
 {
+	int line = __LINE__;
+	int rc = 0;
         struct ifreq ifr;
         int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 
+	line = __LINE__;
         if (sock < 0)
                 return -1;
 
+	line = __LINE__;
         strlcpy(ifr.ifr_name, if_name, IFNAMSIZ);
-        if (ioctl(sock, SIOCGIFINDEX, &ifr))
+        if ((rc = ioctl(sock, SIOCGIFINDEX, &ifr)))
                 goto error;
 
         *if_index = ifr.ifr_ifindex;
 
-        if (ioctl(sock, SIOCGIFHWADDR, &ifr))
+	line = __LINE__;
+        if ((rc = ioctl(sock, SIOCGIFHWADDR, &ifr)))
                 goto error;
 
         rte_memcpy(eth_addr, ifr.ifr_hwaddr.sa_data, RTE_ETHER_ADDR_LEN);
@@ -290,24 +295,60 @@ static inline int get_iface_info(const char *if_name,
 
 error:
         close(sock);
+	MAIO_LOG(ERR, "%s: Failed on %d with %d\n", ifr.ifr_name, line, rc);
         return -1;
 }
 
+#if 0
+#include <common/eal_memcfg.h>
+void rte_malloc_maio_map_heaps(FILE *f)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	unsigned int idx;
+
+	for (idx = 0; idx < RTE_MAX_HEAPS; idx++) {
+		fprintf(f, "Heap id: %u\n", idx);
+		malloc_heap_map(&mcfg->malloc_heaps[idx], f);
+	}
+}
+#endif
 
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
-	        internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
-							RTE_CACHE_LINE_SIZE, rte_socket_id());
-		if ( ! internals->matrix) {
-			MAIO_LOG(ERR, "Failed to init internals\n");
-			return -EINVAL;
-		}
-		/* TODO: Register META to Kernel */
+	int mtrx_proc, len;
+	const struct rte_memzone *mz;
+	char write_buffer[64] = {0};
 
-		return 0;
+	internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
+						RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if ( ! internals->matrix) {
+		MAIO_LOG(ERR, "Failed to init internals\n");
+		return -EINVAL;
+	}
+
+	if ((mtrx_proc = open(MTRX_PROC_NAME, O_RDWR)) < 0) {
+		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+		return -ENODEV;
+	}
+
+	len  = snprintf(write_buffer, 64, "%llu\n", (unsigned long long)internals->matrix);
+	mz = rte_memzone_reserve_aligned("maio_mem",
+					 1024 * 1024,
+					rte_socket_id(), RTE_MEMZONE_IOVA_CONTIG,
+					getpagesize());
+	if (mz == NULL) {
+		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+		return -ENOMEM;
+	}
+
+	//rte_malloc_dump_stats(stdout, NULL);
+	rte_memzone_dump(stdout);
+	//rte_malloc_dump_heaps(stdout);
+
+	return 0;
 }
 
-static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *dev)
+static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *dev, struct in_params *in_params)
 {
 	int ret;
 	struct pmd_internals *internals;
@@ -319,13 +360,15 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
                 return NULL;
 	}
 
-/*
-	ret = get_iface_info(if_name, &internals->eth_addr, &internals->if_index);
+	strlcpy(internals->if_name, in_params->if_name, IFNAMSIZ);
+	internals->q_cnt = in_params->q_cnt;
+
+	ret = get_iface_info(internals->if_name, &internals->eth_addr, &internals->if_index);
         if (ret) {
                 MAIO_LOG(ERR, "Failed to init internals [ignore leak]\n");
                 return NULL;
 	}
-*/
+
 	ret = setup_maio_matrix(internals);
         if (ret) {
                 MAIO_LOG(ERR, "Failed to init MATRIX [ignore leak]\n");
@@ -344,21 +387,73 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
 	return eth_dev;
 }
 
+/** parse integer from integer argument */
+static int parse_integer_arg(const char *key __rte_unused,
+				const char *value, void *extra_args)
+{
+	int *i = (int *)extra_args;
+	char *end;
+
+	*i = strtol(value, &end, 10);
+	if (*i < 0) {
+		MAIO_LOG(ERR, "Argument has to be positive.\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/** parse name argument */
+static int parse_name_arg(const char *key __rte_unused,
+				const char *value, void *extra_args)
+{
+	char *name = extra_args;
+
+	if (strnlen(value, IFNAMSIZ) > IFNAMSIZ - 1) {
+		MAIO_LOG(ERR, "Invalid name %s, should be less than %u bytes.\n",
+			   value, IFNAMSIZ);
+		return -EINVAL;
+	}
+
+	strlcpy(name, value, IFNAMSIZ);
+
+	return 0;
+}
+
+static inline int parse_parameters(struct rte_kvargs *kvlist, struct in_params *params)
+{
+	int ret;
+
+	ret = rte_kvargs_process(kvlist, ETH_MAIO_IFACE_ARG,
+				 &parse_name_arg, params->if_name);
+	if (ret < 0)
+		goto free_kvlist;
+
+	ret = rte_kvargs_process(kvlist, ETH_MAIO_QUEUE_COUNT_ARG,
+				 &parse_integer_arg, &params->q_cnt);
+	if (ret < 0)
+		goto free_kvlist;
+
+	MAIO_LOG(ERR, "Got %s : %d\n", params->if_name, params->q_cnt);
+free_kvlist:
+	rte_kvargs_free(kvlist);
+	return ret;
+}
+
 /*TODO: FiXME
 	1. Init.
 	2. Create a struct for params
 */
 static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 {
+	struct in_params in_params = {0};
         struct rte_kvargs *kvlist;
-        char if_name[IFNAMSIZ]  __rte_unused	= {'\0'};
-	int qcnt		__rte_unused	= 0;
-        struct rte_eth_dev *eth_dev  __rte_unused = NULL;
-        const char *name __rte_unused;
+        struct rte_eth_dev *eth_dev = NULL;
+        const char *name;
 
-	printf("Hello vdev :)[%s]\n", __FUNCTION__);
-        MAIO_LOG(INFO, "Initializing pmd_maio for %s\n",
-                rte_vdev_device_name(dev));
+	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
+        MAIO_LOG(INFO, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
+
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
 		MAIO_LOG(ERR, "Failed to probe %s\n", name);
@@ -374,18 +469,17 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         if (dev->device.numa_node == SOCKET_ID_ANY)
                 dev->device.numa_node = rte_socket_id();
 
-#if 0
-        if (parse_parameters(kvlist, if_name, &qcnt) < 0) {
+        if (parse_parameters(kvlist, &in_params) < 0) {
                 MAIO_LOG(ERR, "Invalid kvargs value\n");
                 return -EINVAL;
         }
 
-        if (strlen(if_name) == 0) {
+        if (strlen(in_params.if_name) == 0) {
                 MAIO_LOG(ERR, "Network interface must be specified\n");
                 return -EINVAL;
         }
-#endif
-        eth_dev = maio_init_internals(dev);
+
+        eth_dev = maio_init_internals(dev, &in_params);
         if (eth_dev == NULL) {
                 MAIO_LOG(ERR, "Failed to init internals\n");
                 return -1;
