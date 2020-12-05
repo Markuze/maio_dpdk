@@ -171,39 +171,59 @@ static int eth_dev_promiscuous_disable(struct rte_eth_dev *dev)
 	return eth_dev_change_flags(internals->if_name, 0, ~IFF_PROMISC);
 }
 
-static inline uint64_t get_base_addr(struct rte_mempool *mp)
+/*TODO: Fixup bin search*/
+static inline int maio_map_memory(void *base_addr, int nr_pages)
 {
-        struct rte_mempool_memhdr *memhdr;
-
-        memhdr = STAILQ_FIRST(&mp->mem_list);
-        return (uint64_t)memhdr->addr & ~(getpagesize() - 1);
-}
-
-static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
-{
-	int map_proc, len, frame_size;
+	int map_proc, len;
 	char write_buffer[64] = {0};
-	void *base_addr = (void *)get_base_addr(mb_pool);
 
 	if ((map_proc = open(MAP_PROC_NAME, O_RDWR)) < 0) {
 		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
 		return -ENODEV;
 	}
 
-        frame_size = rte_pktmbuf_data_room_size(mb_pool) +
-                                        ETH_MAIO_MBUF_OVERHEAD +
-                                        mb_pool->private_data_size;
-
-	len = min((frame_size * mb_pool->populated_size) >> 21, 1);
-
-	printf(">>> %d * %d <%d>=  %d [%d]\n", frame_size, mb_pool->populated_size, mb_pool->size,
-						frame_size *  mb_pool->populated_size, len);
-	len  = snprintf(write_buffer, 64, "%llx %u\n", (unsigned long long)base_addr, len);
+	printf(">>> base_addr %p len %d [2MB pages]\n", base_addr, nr_pages);
+	len  = snprintf(write_buffer, 64, "%llx %u\n", (unsigned long long)base_addr, nr_pages);
 	len = write(map_proc, write_buffer, len);
 
-	printf(">>> Sent %s\n", write_buffer);
+	printf(">>> Sent %s [2MB = %x]\n", write_buffer, (1<<21));
 
 	close(map_proc);
+
+	return 0;
+}
+
+static unsigned long get_msl_len(const struct rte_memseg_list *msl, unsigned long len)
+{
+	struct rte_memseg *memseg = rte_mem_virt2memseg(RTE_PTR_ADD(msl->base_va, len -1), msl);
+	unsigned long populated = memseg ? memseg->len : 0;
+
+	if (populated)
+		return len;
+
+	if (len == 1)
+		return len;
+
+	return get_msl_len(msl, len >> 1);
+}
+
+static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unused)
+{
+	struct rte_memseg *memseg = rte_mem_virt2memseg(msl->base_va, msl);
+	unsigned long len = memseg ? memseg->len : 0;
+
+	if (!len)
+		return 0;
+	len = get_msl_len(msl, msl->len);
+	MAIO_LOG(ERR, "msl: %p sz 0x%lx len %lu\n", msl->base_va, msl->page_sz, len >> 21);
+
+	maio_map_memory(msl->base_va, (len >> 21));
+        return 0;
+}
+
+static inline int maio_map_mbuf(struct rte_mempool *mb_pool __rte_unused)
+{
+	MAIO_LOG(ERR, "FIXME: push mem to Kernel %d\n", __LINE__);
 	return 0;
 }
 
@@ -246,7 +266,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 
 	return 0;
 err:
-	return -ENOMEM;
+	return ret;
 }
 
 static int eth_tx_queue_setup(struct rte_eth_dev *dev,
@@ -260,8 +280,6 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
-err:
-	return -ENOMEM;
 }
 
 static void eth_queue_release(void *q __rte_unused)
@@ -365,24 +383,9 @@ error:
         return -1;
 }
 
-#if 0
-#include <common/eal_memcfg.h>
-void rte_malloc_maio_map_heaps(FILE *f)
-{
-	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
-	unsigned int idx;
-
-	for (idx = 0; idx < RTE_MAX_HEAPS; idx++) {
-		fprintf(f, "Heap id: %u\n", idx);
-		malloc_heap_map(&mcfg->malloc_heaps[idx], f);
-	}
-}
-#endif
-
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
 	int mtrx_proc, len;
-	const struct rte_memzone *mz;
 	char write_buffer[64] = {0};
 
 	internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
@@ -402,19 +405,12 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	len = write(mtrx_proc, write_buffer, len);
 
 	printf(">>> Sent %s\n", write_buffer);
-/*
-	mz = rte_memzone_reserve_aligned("maio_mem",
-					 1024 * 1024,
-					rte_socket_id(), RTE_MEMZONE_IOVA_CONTIG,
-					getpagesize());
-	if (mz == NULL) {
-		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
-		return -ENOMEM;
-	}
-*/
+
+#if 0
 	//rte_malloc_dump_stats(stdout, NULL);
 	rte_memzone_dump(stdout);
 	//rte_malloc_dump_heaps(stdout);
+#endif
 
 	close(mtrx_proc);
 	return 0;
@@ -550,6 +546,8 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
                 MAIO_LOG(ERR, "Network interface must be specified\n");
                 return -EINVAL;
         }
+
+	rte_memseg_list_walk(prep_map_mem, 0);
 
         eth_dev = maio_init_internals(dev, &in_params);
         if (eth_dev == NULL) {
