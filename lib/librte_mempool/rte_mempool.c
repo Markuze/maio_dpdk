@@ -210,14 +210,19 @@ rte_mempool_calc_obj_size(uint32_t elt_size, uint32_t flags,
 		sz->header_size = RTE_ALIGN_CEIL(sz->header_size,
 			RTE_MEMPOOL_ALIGN);
 
+	RTE_LOG(ERR, MEMPOOL, "header = 0x%lx\n", sz->header_size);
+
 #ifdef RTE_LIBRTE_MEMPOOL_DEBUG
 	sz->trailer_size = sizeof(struct rte_mempool_objtlr);
+	RTE_LOG(ERR, MEMPOOL, "???? trailer = 0x%lx\n", sz->trailer_size);
 #else
 	sz->trailer_size = 0;
 #endif
 
 	/* element size is 8 bytes-aligned at least */
 	sz->elt_size = RTE_ALIGN_CEIL(elt_size, sizeof(uint64_t));
+	if (elt_size != sz->elt_size)
+		RTE_LOG(ERR, MEMPOOL, "---- elt  0x%x => 0x%lx\n", elt_size, sz->elt_size);
 
 	/* expand trailer to next cache line */
 	if ((flags & MEMPOOL_F_NO_CACHE_ALIGN) == 0) {
@@ -226,6 +231,7 @@ rte_mempool_calc_obj_size(uint32_t elt_size, uint32_t flags,
 		sz->trailer_size += ((RTE_MEMPOOL_ALIGN -
 				  (sz->total_size & RTE_MEMPOOL_ALIGN_MASK)) &
 				 RTE_MEMPOOL_ALIGN_MASK);
+		RTE_LOG(ERR, MEMPOOL, "++++ trailer = 0x%lx\n", sz->trailer_size);
 	}
 
 	/*
@@ -237,6 +243,7 @@ rte_mempool_calc_obj_size(uint32_t elt_size, uint32_t flags,
 		new_size = optimize_object_size(sz->header_size + sz->elt_size +
 			sz->trailer_size);
 		sz->trailer_size = new_size - sz->header_size - sz->elt_size;
+		RTE_LOG(ERR, MEMPOOL, "==== trailer = 0x%lx\n", sz->trailer_size);
 	}
 
 	/* this is the size of an object, including header and trailer */
@@ -800,7 +807,7 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		return NULL;
 	}
 
-	flags |= MEMPOOL_F_NO_SPREAD|MEMPOOL_F_NO_CACHE_ALIGN;
+	//flags |= MEMPOOL_F_NO_SPREAD|MEMPOOL_F_NO_CACHE_ALIGN;
 	/* "no cache align" imply "no spread" */
 	if (flags & MEMPOOL_F_NO_CACHE_ALIGN)
 		flags |= MEMPOOL_F_NO_SPREAD;
