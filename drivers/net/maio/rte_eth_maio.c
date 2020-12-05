@@ -235,7 +235,8 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
         }
 
 	for (i = 0; i < ETH_MAIO_DFLT_NUM_DESCS; i++) {
-		MAIO_LOG(ERR, "mbuf %p[%llx] data %p\n", bufs[i], (unsigned long long)bufs[i] & ((1<<12) -1), bufs[i]->buf_addr);
+		MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", bufs[i], (unsigned long long)bufs[i] & ((1<<11) -1),
+				bufs[i]->buf_addr, (unsigned long long)bufs[i]->buf_addr & ((1<<11) -1));
 	}
 
 	return 0;
