@@ -833,6 +833,7 @@ alloc_seg_walk(const struct rte_memseg_list *msl, void *arg)
 		map_addr = RTE_PTR_ADD(cur_msl->base_va,
 				cur_idx * page_sz);
 
+		RTE_LOG(ERR, EAL, "mapping %p [%lx * %d]\n", map_addr, page_sz, cur_idx);
 		if (alloc_seg(cur, map_addr, wa->socket, wa->hi,
 				msl_idx, cur_idx)) {
 			RTE_LOG(DEBUG, EAL, "attempted to allocate %i segments, but only %i were allocated\n",
