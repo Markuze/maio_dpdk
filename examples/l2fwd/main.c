@@ -753,6 +753,7 @@ main(int argc, char **argv)
 	check_all_ports_link_status(l2fwd_enabled_port_mask);
 
 	ret = 0;
+#if 0
 	/* launch per-lcore init on every lcore */
 	rte_eal_mp_remote_launch(l2fwd_launch_one_lcore, NULL, CALL_MASTER);
 	RTE_LCORE_FOREACH_SLAVE(lcore_id) {
@@ -770,7 +771,8 @@ main(int argc, char **argv)
 		rte_eth_dev_close(portid);
 		printf(" Done\n");
 	}
-	printf("Bye...\n");
+#endif
+	printf("Bye... Debugging INIT\n");
 
 	return ret;
 }

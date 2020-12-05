@@ -565,6 +565,7 @@ alloc_seg(struct rte_memseg *ms, void *addr, int socket_id,
 		 */
 		goto unmapped;
 	}
+	RTE_LOG(ERR, EAL, "%s(): mmap() : %p\n", __func__, addr);
 	if (va != addr) {
 		RTE_LOG(DEBUG, EAL, "%s(): wrong mmap() address\n", __func__);
 		munmap(va, alloc_sz);
