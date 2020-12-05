@@ -34,9 +34,10 @@
 
 static int maio_logtype;
 
+#define COOKIE "=+="
 #define MAIO_LOG(level, fmt, args...)                 \
         rte_log(RTE_LOG_ ## level, maio_logtype,      \
-                "%s(): " fmt, __func__, ##args)
+                "%s(): "COOKIE fmt, __func__, ##args)
 
 static const char *const valid_arguments[] = {
         ETH_MAIO_IFACE_ARG,
@@ -61,6 +62,7 @@ static void eth_dev_stop(struct rte_eth_dev *dev)
 static int eth_dev_start(struct rte_eth_dev *dev)
 {
 	MAIO_LOG(ERR, "%d\n", __LINE__);
+	//TODO: Echo - set maio active
 	dev->data->dev_link.link_status = ETH_LINK_UP;
 
 	return 0;
@@ -89,8 +91,8 @@ static int eth_dev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_in
 	dev_info->if_index = internals->if_index;
 	dev_info->max_mac_addrs = 1;
 	dev_info->max_rx_pktlen = ETH_FRAME_LEN;
-	//dev_info->max_rx_queues = internals->queue_cnt;
-	//dev_info->max_tx_queues = internals->queue_cnt;
+	dev_info->max_rx_queues = 1;
+	dev_info->max_tx_queues = 1;
 
 	dev_info->min_mtu = RTE_ETHER_MIN_MTU;
 	dev_info->max_mtu = ETH_MAX_MTU;
@@ -169,22 +171,84 @@ static int eth_dev_promiscuous_disable(struct rte_eth_dev *dev)
 	return eth_dev_change_flags(internals->if_name, 0, ~IFF_PROMISC);
 }
 
+static inline uint64_t get_base_addr(struct rte_mempool *mp)
+{
+        struct rte_mempool_memhdr *memhdr;
+
+        memhdr = STAILQ_FIRST(&mp->mem_list);
+        return (uint64_t)memhdr->addr & ~(getpagesize() - 1);
+}
+
+static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
+{
+	int map_proc, len, frame_size;
+	char write_buffer[64] = {0};
+	void *base_addr = (void *)get_base_addr(mb_pool);
+
+	if ((map_proc = open(MAP_PROC_NAME, O_RDWR)) < 0) {
+		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+		return -ENODEV;
+	}
+
+        frame_size = rte_pktmbuf_data_room_size(mb_pool) +
+                                        ETH_MAIO_MBUF_OVERHEAD +
+                                        mb_pool->private_data_size;
+
+	len = min((frame_size * mb_pool->populated_size) >> 21, 1);
+
+	printf(">>> %d * %d <%d>=  %d [%d]\n", frame_size, mb_pool->populated_size, mb_pool->size,
+						frame_size *  mb_pool->populated_size, len);
+	len  = snprintf(write_buffer, 64, "%llx %u\n", (unsigned long long)base_addr, len);
+	len = write(map_proc, write_buffer, len);
+
+	printf(">>> Sent %s\n", write_buffer);
+
+	close(map_proc);
+	return 0;
+}
+
 /* TODO: FIXME**/
 static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 				uint16_t rx_queue_id __rte_unused,
 				uint16_t nb_rx_desc __rte_unused,
 				unsigned int socket_id __rte_unused,
 				const struct rte_eth_rxconf *rx_conf __rte_unused,
-				struct rte_mempool *mb_pool __rte_unused)
+				struct rte_mempool *mb_pool)
 {
+	struct rte_mbuf *fq_bufs[ETH_MAIO_DFLT_NUM_DESCS];
 	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
+        uint32_t buf_size, data_size;
+	int ret = 0;
 
 	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
+        /* Now get the space available for data in the mbuf */
+        buf_size = rte_pktmbuf_data_room_size(mb_pool) - RTE_PKTMBUF_HEADROOM;
+        data_size = ETH_MAIO_FRAME_SIZE - ETH_MAIO_DATA_HEADROOM;
+
+        if (data_size > buf_size) {
+                MAIO_LOG(ERR, "%s: %d bytes will not fit in mbuf (%d bytes)\n",
+                        dev->device->name, data_size, buf_size);
+                ret = -ENOMEM;
+                goto err;
+        }
+	MAIO_LOG(ERR, "%s: %d bytes will fit in mbuf (%d bytes)\n",
+		dev->device->name, data_size, buf_size);
+
+	//TODO: This is the place to adjust mlx5 headroom? - Or hardcode in driver?
+        if (rte_pktmbuf_alloc_bulk(mb_pool, fq_bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
+               	MAIO_LOG(DEBUG, "Failed to get enough buffers for fq.\n");
+                goto err;
+        }
+
+	maio_map_mbuf(mb_pool);
+	//TODO: Map to Kernel
+
 	return 0;
+err:
+	return -ENOMEM;
 }
 
-/* TODO: FIXME**/
 static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 				uint16_t tx_queue_id __rte_unused,
 				uint16_t nb_tx_desc __rte_unused,
@@ -196,6 +260,8 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
 	return 0;
+err:
+	return -ENOMEM;
 }
 
 static void eth_queue_release(void *q __rte_unused)
@@ -350,6 +416,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	rte_memzone_dump(stdout);
 	//rte_malloc_dump_heaps(stdout);
 
+	close(mtrx_proc);
 	return 0;
 }
 

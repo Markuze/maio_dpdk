@@ -4,9 +4,13 @@
 #include <rte_common.h>
 
 #define MTRX_PROC_NAME			"/proc/maio/mtrx"
+#define MAP_PROC_NAME			"/proc/maio/map"
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
+#define ETH_MAIO_FRAME_SIZE		2048
+#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
+#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 #define ETH_MAIO_DFLT_NUM_DESCS		512
 
 #define NUM_MAX_RINGS	16
@@ -15,12 +19,16 @@
 
 #define DATA_MTRX_SZ ((ETH_MAIO_DFLT_NUM_DESCS * NUM_MAX_RINGS) * NUM_RING_TYPES * RE_SZ)
 
+#define max(a, b) (a > b ? (uint64_t)a : (uint64_t)b)
+#define min(a, b) (a < b ? (uint64_t)a : (uint64_t)b)
+
 struct in_params {
 	char if_name[IFNAMSIZ];
 	int q_cnt;
 };
 
 struct pmd_internals {
+	struct rte_mempool *mb_pool;
 	int if_index;
 	int q_cnt;
 	char if_name[IFNAMSIZ];
