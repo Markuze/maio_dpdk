@@ -127,6 +127,7 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	}
 	elt_size = sizeof(struct rte_mbuf) + (unsigned)priv_size +
 		(unsigned)data_room_size;
+	RTE_LOG(ERR, MBUF, "elemt size %u [%u]\n", elt_size, data_room_size);
 	memset(&mbp_priv, 0, sizeof(mbp_priv));
 	mbp_priv.mbuf_data_room_size = data_room_size;
 	mbp_priv.mbuf_priv_size = priv_size;

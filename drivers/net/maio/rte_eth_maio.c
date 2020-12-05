@@ -221,9 +221,23 @@ static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unuse
         return 0;
 }
 
-static inline int maio_map_mbuf(struct rte_mempool *mb_pool __rte_unused)
+static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
+	int i;
+	struct rte_mbuf *bufs[ETH_MAIO_DFLT_NUM_DESCS];
+
 	MAIO_LOG(ERR, "FIXME: push mem to Kernel %d\n", __LINE__);
+
+	//TODO: This is the place to adjust mlx5 headroom? - Or hardcode in driver?
+        if (rte_pktmbuf_alloc_bulk(mb_pool, bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
+               	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
+		return -ENOMEM;
+        }
+
+	for (i = 0; i < ETH_MAIO_DFLT_NUM_DESCS; i++) {
+		MAIO_LOG(ERR, "mbuf %p[%llx] data %p\n", bufs[i], (unsigned long long)bufs[i] & ((1<<12) -1), bufs[i]->buf_addr);
+	}
+
 	return 0;
 }
 
@@ -235,7 +249,6 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 				const struct rte_eth_rxconf *rx_conf __rte_unused,
 				struct rte_mempool *mb_pool)
 {
-	struct rte_mbuf *fq_bufs[ETH_MAIO_DFLT_NUM_DESCS];
 	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
         uint32_t buf_size, data_size;
 	int ret = 0;
@@ -243,8 +256,8 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
 
         /* Now get the space available for data in the mbuf */
-        buf_size = rte_pktmbuf_data_room_size(mb_pool) - RTE_PKTMBUF_HEADROOM;
-        data_size = ETH_MAIO_FRAME_SIZE - ETH_MAIO_DATA_HEADROOM;
+        buf_size = rte_pktmbuf_data_room_size(mb_pool);
+        data_size = 1514;
 
         if (data_size > buf_size) {
                 MAIO_LOG(ERR, "%s: %d bytes will not fit in mbuf (%d bytes)\n",
@@ -255,14 +268,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "%s: %d bytes will fit in mbuf (%d bytes)\n",
 		dev->device->name, data_size, buf_size);
 
-	//TODO: This is the place to adjust mlx5 headroom? - Or hardcode in driver?
-        if (rte_pktmbuf_alloc_bulk(mb_pool, fq_bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
-               	MAIO_LOG(DEBUG, "Failed to get enough buffers for fq.\n");
-                goto err;
-        }
-
 	maio_map_mbuf(mb_pool);
-	//TODO: Map to Kernel
 
 	return 0;
 err:
@@ -547,6 +553,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
                 return -EINVAL;
         }
 
+	/* map hugepages to MAIO */
 	rte_memseg_list_walk(prep_map_mem, 0);
 
         eth_dev = maio_init_internals(dev, &in_params);
