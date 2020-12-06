@@ -241,6 +241,7 @@ static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unuse
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
 	int i, proc, len, p;
+	size_t pages_sz;
 	struct meta_pages_0 *pages;
 	struct rte_mbuf **mbufs;
 
@@ -249,23 +250,25 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
+	pages_sz =  sizeof(struct meta_pages_0) + ((len>>1) *  sizeof(void *));
+	printf("%lu = %lu + (%lu  * %lu)\n", pages_sz , sizeof(struct meta_pages_0) ,(len>>1) , sizeof(void *));
+	pages = rte_zmalloc_socket(NULL, pages_sz, RTE_CACHE_LINE_SIZE, rte_socket_id());
 
-	pages = rte_zmalloc_socket(NULL, sizeof(struct meta_pages_0) + (len>>1) * sizeof(void *),
-						RTE_CACHE_LINE_SIZE, rte_socket_id());
 	MAIO_LOG(ERR, "push mem to Kernel %d, allocating %d mbufs [%d pages]\n", __LINE__, len, (len >> 1));
         if (rte_pktmbuf_alloc_bulk(mb_pool, mbufs, len)) {
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
 
-
 	//first mbuf is expected to be not page-aligned
 	for (i = 1, p = 0; i < len; i++) {
 		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
-			MAIO_LOG(ERR, "skipping [%d/%d] mbuf %p[%lld] data %p[%lld]\n", i, p, mbufs[i],
+#if 0
+			MAIO_LOG(ERR, "skipping [%d/%d] page %p[%lld] data %p[%lld]\n", i, p , pages->bufs[p -1],
 					(unsigned long long)mbufs[i] & ((1<<11) -1),
 					mbufs[i]->buf_addr,
 					(unsigned long long)mbufs[i]->buf_addr & ((1<<11) -1));
+#endif
 			continue;
 		}
 		pages->bufs[p++] = mbufs[i];
@@ -282,8 +285,8 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
 	pages->headroom = (uint16_t)mbufs[0]->buf_addr & (0x800 -1);
 	pages->flags    = 0xC01E;
-	write(proc, pages, sizeof(pages));
-	printf("sent to %s\n", PAGES_0_PROC_NAME);
+	write(proc, pages, pages_sz);
+	printf("%s: sent to %s [%lu] first addr %p\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0]);
 
 	//TODO: Free mbufs & pages;
 	return 0;
