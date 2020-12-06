@@ -221,15 +221,23 @@ static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unuse
         return 0;
 }
 
+struct meta_pages_0 {
+	uint16_t nr_pages;
+	uint16_t stride;
+	uint16_t headroom;
+	uint16_t flags;
+	struct rte_mbuf *bufs[ETH_MAIO_DFLT_NUM_DESCS];
+};
+
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
 	int i;
-	struct rte_mbuf *bufs[ETH_MAIO_DFLT_NUM_DESCS];
+	struct meta_pages_0 pages;
 
 	MAIO_LOG(ERR, "FIXME: push mem to Kernel %d\n", __LINE__);
 
 	//TODO: This is the place to adjust mlx5 headroom? - Or hardcode in driver?
-        if (rte_pktmbuf_alloc_bulk(mb_pool, bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
+        if (rte_pktmbuf_alloc_bulk(mb_pool, pages.bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
@@ -237,6 +245,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	for (i = 0; i < ETH_MAIO_DFLT_NUM_DESCS; i++) {
 		MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", bufs[i], (unsigned long long)bufs[i] & ((1<<11) -1),
 				bufs[i]->buf_addr, (unsigned long long)bufs[i]->buf_addr & ((1<<11) -1));
+		//TODO: Finish array and write to pages_0 + compile and finish kernel side.
 	}
 
 	return 0;
