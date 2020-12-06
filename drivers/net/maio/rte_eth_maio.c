@@ -52,17 +52,34 @@ static const struct rte_eth_link pmd_link = {
         .link_autoneg = ETH_LINK_AUTONEG
 };
 
+static inline int maio_set_state(const char *state)
+{	int fd;
+
+	if ((fd = open(ENABLE_PROC_NAME, O_RDWR)) < 0) {
+		MAIO_LOG(ERR, "Failed to change state %d\n", __LINE__);
+		return -ENODEV;
+	}
+
+	write(fd, state, strlen(state));
+	MAIO_LOG(ERR, "Change state %s[%ld]\n", state, strlen(state));
+
+	close(fd);
+
+	return 0;
+}
+
 /* This function gets called when the current port gets stopped. */
 static void eth_dev_stop(struct rte_eth_dev *dev)
 {
 	MAIO_LOG(ERR, "%d\n", __LINE__);
+	maio_set_state("0");
         dev->data->dev_link.link_status = ETH_LINK_DOWN;
 }
 
 static int eth_dev_start(struct rte_eth_dev *dev)
 {
 	MAIO_LOG(ERR, "%d\n", __LINE__);
-	//TODO: Echo - set maio active
+	maio_set_state("1");
 	dev->data->dev_link.link_status = ETH_LINK_UP;
 
 	return 0;
@@ -221,33 +238,54 @@ static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unuse
         return 0;
 }
 
-struct meta_pages_0 {
-	uint16_t nr_pages;
-	uint16_t stride;
-	uint16_t headroom;
-	uint16_t flags;
-	struct rte_mbuf *bufs[ETH_MAIO_DFLT_NUM_DESCS];
-};
-
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
-	int i;
-	struct meta_pages_0 pages;
+	int i, proc, len, p;
+	struct meta_pages_0 *pages;
+	struct rte_mbuf **mbufs;
 
-	MAIO_LOG(ERR, "FIXME: push mem to Kernel %d\n", __LINE__);
 
-	//TODO: This is the place to adjust mlx5 headroom? - Or hardcode in driver?
-        if (rte_pktmbuf_alloc_bulk(mb_pool, pages.bufs, ETH_MAIO_DFLT_NUM_DESCS)) {
+	len = mb_pool->populated_size >> 1;
+
+	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
+						RTE_CACHE_LINE_SIZE, rte_socket_id());
+
+	pages = rte_zmalloc_socket(NULL, sizeof(struct meta_pages_0) + (len>>1) * sizeof(void *),
+						RTE_CACHE_LINE_SIZE, rte_socket_id());
+	MAIO_LOG(ERR, "push mem to Kernel %d, allocating %d mbufs [%d pages]\n", __LINE__, len, (len >> 1));
+        if (rte_pktmbuf_alloc_bulk(mb_pool, mbufs, len)) {
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
 
-	for (i = 0; i < ETH_MAIO_DFLT_NUM_DESCS; i++) {
-		MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", bufs[i], (unsigned long long)bufs[i] & ((1<<11) -1),
-				bufs[i]->buf_addr, (unsigned long long)bufs[i]->buf_addr & ((1<<11) -1));
-		//TODO: Finish array and write to pages_0 + compile and finish kernel side.
+
+	//first mbuf is expected to be not page-aligned
+	for (i = 1, p = 0; i < len; i++) {
+		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
+			MAIO_LOG(ERR, "skipping [%d/%d] mbuf %p[%lld] data %p[%lld]\n", i, p, mbufs[i],
+					(unsigned long long)mbufs[i] & ((1<<11) -1),
+					mbufs[i]->buf_addr,
+					(unsigned long long)mbufs[i]->buf_addr & ((1<<11) -1));
+			continue;
+		}
+		pages->bufs[p++] = mbufs[i];
+		//MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", pages.bufs[i], (unsigned long long)pages.bufs[i] & ((1<<11) -1),
+		//		pages.bufs[i]->buf_addr, (unsigned long long)pages.bufs[i]->buf_addr & ((1<<11) -1));
 	}
 
+	if ((proc = open(PAGES_0_PROC_NAME, O_RDWR)) < 0) {
+		MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+		return -ENODEV;
+	}
+
+	pages->nr_pages = p;
+	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
+	pages->headroom = (uint16_t)mbufs[0]->buf_addr & (0x800 -1);
+	pages->flags    = 0xC01E;
+	write(proc, pages, sizeof(pages));
+	printf("sent to %s\n", PAGES_0_PROC_NAME);
+
+	//TODO: Free mbufs & pages;
 	return 0;
 }
 

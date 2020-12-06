@@ -3,12 +3,15 @@
 
 #include <rte_common.h>
 
+#define PAGES_0_PROC_NAME		"/proc/maio/pages_0"
 #define MTRX_PROC_NAME			"/proc/maio/mtrx"
 #define MAP_PROC_NAME			"/proc/maio/map"
+#define ENABLE_PROC_NAME		"/proc/maio/enable"
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
 #define ETH_MAIO_FRAME_SIZE		2048
+#define ETH_MAIO_MBUF_STRIDE		0x800 	// TODO: same as frame size - need to check if redundant
 #define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 #define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 #define ETH_MAIO_DFLT_NUM_DESCS		512
@@ -21,6 +24,14 @@
 
 #define max(a, b) (a > b ? (uint64_t)a : (uint64_t)b)
 #define min(a, b) (a < b ? (uint64_t)a : (uint64_t)b)
+
+struct meta_pages_0 {
+	uint16_t nr_pages;
+	uint16_t stride;
+	uint16_t headroom;
+	uint16_t flags;
+	void *bufs[0];
+};
 
 struct in_params {
 	char if_name[IFNAMSIZ];
