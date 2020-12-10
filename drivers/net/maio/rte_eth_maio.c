@@ -288,6 +288,8 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	write(proc, pages, pages_sz);
 	printf("%s: sent to %s [%lu] first addr %p\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0]);
 
+	rte_free(mbufs);
+	rte_free(pages);
 	//TODO: Free mbufs & pages;
 	return 0;
 }
@@ -442,7 +444,7 @@ error:
 
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
-	int mtrx_proc, len;
+	int mtrx_proc, len, i;
 	char write_buffer[64] = {0};
 
 	internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
@@ -460,6 +462,13 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	len  = snprintf(write_buffer, 64, "%llx %lu\n", (unsigned long long)internals->matrix,
 							sizeof(struct user_matrix) + DATA_MTRX_SZ);
 	len = write(mtrx_proc, write_buffer, len);
+
+	for (i = 0; i < NUM_MAX_RINGS; i++) {
+		internals->matrix->rx.ring[i] = info->info.rx_rings[i] =
+				internals->matrix->base[i * (RE_SZ * ETH_MAIO_DFLT_NUM_DESCS * NUM_RING_TYPES)];
+		internals->matrix->tx.ring[i] = info->info.tx_rings[i] =
+				internals->matrix->base[ (i+1) * (RE_SZ * ETH_MAIO_DFLT_NUM_DESCS * NUM_RING_TYPES)];
+	}
 
 	printf(">>> Sent %s\n", write_buffer);
 

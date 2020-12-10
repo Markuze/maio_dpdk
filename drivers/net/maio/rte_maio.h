@@ -48,24 +48,39 @@ struct pmd_internals {
 };
 
 struct common_ring_info {
-	int nr_rx_rings;
-	int nr_tx_rings;
-	int nr_rx_sz;
-	int nr_tx_sz;
+	uint32_t nr_rx_rings;
+	uint32_t nr_tx_rings;
+	uint32_t nr_rx_sz;
+	uint32_t nr_tx_sz;
 
-	int  meta_len;
-	void *rx_rings;
-	void *tx_rings;
-	void *meta_base;
-	void *meta_free;
+	/* MUST be the same as set in user_rings */
+	/*
+		The motivation is to have one set place to share info
+		and another to  allow both user and kernel to change
+		w/o breaking the other
+	*/
+	unsigned long long *rx_rings[NUM_MAX_RINGS];
+	unsigned long long *tx_ring[NUM_MAX_RINGS];
 };
 
+# if 0
 struct meta_ring {
 	/* TODO: Add some local stats into each cacheline*/
 	/* User writes Kernel Reads */
 	unsigned long consumer __rte_cache_aligned;
 	/* Kernel writes User Reads */
 	unsigned long producer __rte_cache_aligned;
+};
+#endif
+// The preferred way:
+// 	Both consumer and producer have only their local counter.
+//	entry is available for consumption if full/flag set for large entries, free otherwise.
+//	in our case each entry is just a void *.
+//	Namely, rings MUST be zeroed-out on init.
+struct meta_ring {
+	unsigned long consumer;
+	// For SMP- a per core consumer.
+	//unsigned long consumer __rte_cache_aligned;
 };
 
 struct user_rings {
@@ -76,10 +91,16 @@ struct user_rings {
 
 struct user_matrix {
 	struct common_ring_info info;
+#if 0
+	//SMP_MULTIPLE_POLLERS
 	struct user_rings rx __rte_cache_aligned;
 	struct user_rings tx __rte_cache_aligned;
 	/* TODO: MAIO KNI : Just Fix KNI to use z-copy */
 	/* Consider Alloc/Free/Completion/Refill rings */
+#endif
+	//Best for single core user I/O
+	struct user_rings rx;
+	struct user_rings tx;
 
 	unsigned long long base[0] __rte_cache_aligned;
 };
