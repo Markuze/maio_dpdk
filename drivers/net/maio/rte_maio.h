@@ -60,7 +60,7 @@ struct common_ring_info {
 		w/o breaking the other
 	*/
 	unsigned long long *rx_rings[NUM_MAX_RINGS];
-	unsigned long long *tx_ring[NUM_MAX_RINGS];
+	unsigned long long *tx_rings[NUM_MAX_RINGS];
 };
 
 # if 0

@@ -53,7 +53,8 @@ static const struct rte_eth_link pmd_link = {
 };
 
 static inline int maio_set_state(const char *state)
-{	int fd;
+{
+	int fd;
 
 	if ((fd = open(ENABLE_PROC_NAME, O_RDWR)) < 0) {
 		MAIO_LOG(ERR, "Failed to change state %d\n", __LINE__);
@@ -61,7 +62,7 @@ static inline int maio_set_state(const char *state)
 	}
 
 	write(fd, state, strlen(state));
-	MAIO_LOG(ERR, "Change state %s[%ld]\n", state, strlen(state));
+	MAIO_LOG(ERR, "Change state %s[%ld] fd %d\n", state, strlen(state), fd);
 
 	close(fd);
 
@@ -251,7 +252,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
 	pages_sz =  sizeof(struct meta_pages_0) + ((len>>1) *  sizeof(void *));
-	printf("%lu = %lu + (%lu  * %lu)\n", pages_sz , sizeof(struct meta_pages_0) ,(len>>1) , sizeof(void *));
+	printf("%lu = %lu + (%u  * %lu)\n", pages_sz , sizeof(struct meta_pages_0) ,(len>>1) , sizeof(void *));
 	pages = rte_zmalloc_socket(NULL, pages_sz, RTE_CACHE_LINE_SIZE, rte_socket_id());
 
 	MAIO_LOG(ERR, "push mem to Kernel %d, allocating %d mbufs [%d pages]\n", __LINE__, len, (len >> 1));
@@ -444,12 +445,13 @@ error:
 
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
-	int mtrx_proc, len, i;
+	int mtrx_proc, len, i, k;
+	struct user_matrix *matrix;
 	char write_buffer[64] = {0};
 
-	internals->matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
+	matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
-	if ( ! internals->matrix) {
+	if ( ! matrix) {
 		MAIO_LOG(ERR, "Failed to init internals\n");
 		return -EINVAL;
 	}
@@ -459,19 +461,25 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 		return -ENODEV;
 	}
 
-	len  = snprintf(write_buffer, 64, "%llx %lu\n", (unsigned long long)internals->matrix,
+	len  = snprintf(write_buffer, 64, "%llx %lu\n", (unsigned long long)matrix,
 							sizeof(struct user_matrix) + DATA_MTRX_SZ);
-	len = write(mtrx_proc, write_buffer, len);
-
-	for (i = 0; i < NUM_MAX_RINGS; i++) {
-		internals->matrix->rx.ring[i] = info->info.rx_rings[i] =
-				internals->matrix->base[i * (RE_SZ * ETH_MAIO_DFLT_NUM_DESCS * NUM_RING_TYPES)];
-		internals->matrix->tx.ring[i] = info->info.tx_rings[i] =
-				internals->matrix->base[ (i+1) * (RE_SZ * ETH_MAIO_DFLT_NUM_DESCS * NUM_RING_TYPES)];
+	//TODO: Set to actual num_avail_cpus.
+	MAIO_LOG(ERR, ">>> seting user_matrix info @ %p\n", &matrix->info);
+	matrix->info.nr_rx_rings = 8;
+	matrix->info.nr_tx_rings = 8;
+	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
+	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
+	for (i = 0, k = 0; i < NUM_MAX_RINGS; i++) {
+		matrix->rx.ring[i] = matrix->info.rx_rings[i] =
+				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
+		matrix->tx.ring[i] = matrix->info.tx_rings[i] =
+				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 	}
 
-	printf(">>> Sent %s\n", write_buffer);
+	len = write(mtrx_proc, write_buffer, len);
 
+	MAIO_LOG(ERR, ">>> Sent %s\n", write_buffer);
+	internals->matrix = matrix;
 #if 0
 	//rte_malloc_dump_stats(stdout, NULL);
 	rte_memzone_dump(stdout);
