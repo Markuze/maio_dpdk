@@ -15,11 +15,7 @@
 #include <linux/version.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
-#include <linux/mdio-gpio.h>
-#else
-#include <linux/platform_data/mdio-gpio.h>
-#endif
+#include <linux/mdio-bitbang.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/cdev.h>
