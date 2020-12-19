@@ -32,12 +32,19 @@
 
 #include "rte_maio.h"
 
+static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
+#define MAIO_POISON (0xFEA20FDAU)
 #define COOKIE "=+="
 #define MAIO_LOG(level, fmt, args...)                 \
         rte_log(RTE_LOG_ ## level, maio_logtype,      \
                 "%s(): "COOKIE fmt, __func__, ##args)
+
+#define ASSERT(exp)								\
+		if (!(exp))							\
+			rte_panic("%s:%d\tassert \"" #exp "\" failed\n",	\
+						__FUNCTION__, __LINE__)		\
 
 static const char *const valid_arguments[] = {
         ETH_MAIO_IFACE_ARG,
@@ -242,6 +249,7 @@ static int prep_map_mem(const struct rte_memseg_list *msl, void *arg __rte_unuse
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
 	int i, proc, len, p;
+	int verbose = 1;
 	size_t pages_sz;
 	struct meta_pages_0 *pages;
 	struct rte_mbuf **mbufs;
@@ -264,12 +272,14 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	//first mbuf is expected to be not page-aligned
 	for (i = 1, p = 0; i < len; i++) {
 		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
-#if 0
-			MAIO_LOG(ERR, "skipping [%d/%d] page %p[%lld] data %p[%lld]\n", i, p , pages->bufs[p -1],
+			if (verbose) {
+				MAIO_LOG(ERR, "skipping [%d/%d] page %p[%lld] data %p[%lld] offset %d\n", i, p , pages->bufs[p -1],
 					(unsigned long long)mbufs[i] & ((1<<11) -1),
 					mbufs[i]->buf_addr,
-					(unsigned long long)mbufs[i]->buf_addr & ((1<<11) -1));
-#endif
+					(unsigned long long)mbufs[i]->buf_addr & ((1<<11) -1),
+					mbufs[i]->data_off);
+				verbose = 0;
+			}
 			continue;
 		}
 		pages->bufs[p++] = mbufs[i];
@@ -284,26 +294,26 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	pages->nr_pages = p;
 	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
-	pages->headroom = (uint16_t)mbufs[0]->buf_addr & (0x800 -1);
-	pages->flags    = 0xC01E;
+	pages->headroom = (uint64_t)mbufs[0]->buf_addr & (0x800 -1);
+	pages->flags    = 0xC0CE;
 	write(proc, pages, pages_sz);
 	printf("%s: sent to %s [%lu] first addr %p\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0]);
 
 	rte_free(mbufs);
 	rte_free(pages);
-	//TODO: Free mbufs & pages;
+
+	maio_mb_pool = mb_pool;
 	return 0;
 }
 
-/* TODO: FIXME**/
 static int eth_rx_queue_setup(struct rte_eth_dev *dev,
-				uint16_t rx_queue_id __rte_unused,
+				uint16_t rx_queue_id,
 				uint16_t nb_rx_desc __rte_unused,
 				unsigned int socket_id __rte_unused,
 				const struct rte_eth_rxconf *rx_conf __rte_unused,
 				struct rte_mempool *mb_pool)
 {
-	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
+	struct pmd_internals *internals = dev->data->dev_private;
         uint32_t buf_size, data_size;
 	int ret = 0;
 
@@ -323,6 +333,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 		dev->device->name, data_size, buf_size);
 
 	maio_map_mbuf(mb_pool);
+	dev->data->rx_queues[rx_queue_id] = internals->matrix;
 
 	return 0;
 err:
@@ -390,24 +401,93 @@ static const struct eth_dev_ops ops = {
 	.stats_reset = eth_stats_reset,
 };
 
-/*TODO: FiXME
-	1. RX Func.
-*/
-static uint16_t eth_maio_rx(void *queue __rte_unused,
-				struct rte_mbuf **bufs __rte_unused,
-				uint16_t nb_pkts __rte_unused)
+static inline void show_io(struct rte_mbuf *mbuf)
 {
-	return 0;
+        struct rte_ether_hdr *eth, *tmp;
+
+	tmp = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+	eth = (void *)((((unsigned long)mbuf) & (ETH_MAIO_MBUF_STRIDE -1)) + 256);
+
+	printf("IN type: 0x%x: %p =?= %p\n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+		rte_cpu_to_be_16(eth->ether_type),
+		tmp, eth,
+		eth->d_addr.addr_bytes[0],
+		eth->d_addr.addr_bytes[1],
+		eth->d_addr.addr_bytes[2],
+		eth->d_addr.addr_bytes[3],
+		eth->d_addr.addr_bytes[4],
+		eth->d_addr.addr_bytes[5]);
+	printf(":S_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+		eth->s_addr.addr_bytes[0],
+		eth->s_addr.addr_bytes[1],
+		eth->s_addr.addr_bytes[2],
+		eth->s_addr.addr_bytes[3],
+		eth->s_addr.addr_bytes[4],
+		eth->s_addr.addr_bytes[5]);
+
+
+}
+
+#define SHOW_IO show_io
+#define advance_ring(r)		(r)->ring[(r)->consumer++] = 0
+static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
+						struct rte_mbuf **bufs,
+						uint16_t *cnt, uint16_t nb_pkts)
+{
+	int i = 0;
+
+	while (ring->ring[ring->consumer])  {
+		struct rte_mbuf *mbuf;
+		struct io_md *md;
+		uint64_t addr = ring->ring[ring->consumer];
+
+		mbuf 	= (void *)(addr + ALLIGNED_MBUF_OFFSET);
+		md 	= (void *)(addr + ALLIGNED_MBUF_OFFSET);
+		md--;
+		advance_ring(ring);
+		ASSERT(mbuf->pool == maio_mb_pool);
+		ASSERT(md->poison == MAIO_POISON);
+		rte_pktmbuf_pkt_len(mbuf) = md->len;
+		rte_pktmbuf_data_len(mbuf) = md->len;
+		bufs[i++] = mbuf;
+
+		SHOW_IO(mbuf);
+
+		if (--nb_pkts)
+			break;
+	}
+	*cnt = i;
+}
+
+//RX HERE
+static uint16_t eth_maio_rx(void *queue,
+				struct rte_mbuf **bufs,
+				uint16_t nb_pkts)
+{
+	int i;
+	uint16_t cnt = 0;
+	uint16_t rcv = 0;
+	struct user_matrix *matrix = queue;
+
+	for (i = 0; i < NUM_MAX_RINGS; i++) {
+		bufs = poll_maio_ring(&matrix->rx[i], bufs, &cnt, nb_pkts);
+		nb_pkts -= cnt;
+		rcv 	+= cnt;
+		if (!nb_pkts)
+			break;
+	}
+	return cnt;
 }
 
 /*TODO: FiXME
-	1. RX Func.
+	1. TX Func.
 */
 static uint16_t eth_maio_tx(void *queue __rte_unused,
 				struct rte_mbuf **bufs __rte_unused,
-				uint16_t nb_pkts __rte_unused)
+				uint16_t nb_pkts)
 {
-	return 0;
+	/* NULL TX Send */
+	return nb_pkts ;
 }
 
 static inline int get_iface_info(const char *if_name, struct rte_ether_addr *eth_addr, int *if_index)
@@ -470,9 +550,9 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 	for (i = 0, k = 0; i < NUM_MAX_RINGS; i++) {
-		matrix->rx.ring[i] = matrix->info.rx_rings[i] =
+		matrix->rx[i].ring = matrix->info.rx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
-		matrix->tx.ring[i] = matrix->info.tx_rings[i] =
+		matrix->tx[i].ring = matrix->info.tx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 	}
 
