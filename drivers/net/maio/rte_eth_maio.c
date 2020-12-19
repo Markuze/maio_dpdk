@@ -35,6 +35,7 @@
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
+#define MAIO_HEADROOM	192
 #define COOKIE "=-="
 #define MAIO_LOG(level, fmt, args...)                 \
         rte_log(RTE_LOG_ ## level, maio_logtype,      \
@@ -400,12 +401,13 @@ static const struct eth_dev_ops ops = {
 	.stats_reset = eth_stats_reset,
 };
 
+#define ETH_MAIO_STRIDE_MASK	(~(ETH_MAIO_MBUF_STRIDE -1))
 static inline void show_io(struct rte_mbuf *mbuf)
 {
         struct rte_ether_hdr *eth, *tmp;
 
 	tmp = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
-	eth = (void *)((((unsigned long)mbuf) & (ETH_MAIO_MBUF_STRIDE -1)) + 256);
+	eth = (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
 
 	printf("IN type: 0x%x: %p =?= %p\n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 		rte_cpu_to_be_16(eth->ether_type),
@@ -426,7 +428,6 @@ static inline void show_io(struct rte_mbuf *mbuf)
 
 
 }
-#define ETH_MAIO_STRIDE_MASK	(ETH_MAIO_MBUF_STRIDE -1)
 #define SHOW_IO show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++] = 0
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
@@ -440,10 +441,11 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		struct io_md *md;
 		uint64_t addr = ring->ring[ring->consumer];
 
+		printf("Received[%ld] 0x%lx\n", ring->consumer, addr);
 		mbuf 	= (void *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
 		//TODO: Fix mbuf data_off
 		printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
-		md = (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + 256);
+		md = (void *)((addr & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
 		md--;
 		advance_ring(ring);
 		ASSERT(mbuf->pool == maio_mb_pool);
