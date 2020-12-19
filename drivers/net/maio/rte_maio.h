@@ -3,6 +3,8 @@
 
 #include <rte_common.h>
 
+#define MAIO_POISON (0xFEA20FDAU)
+
 #define PAGES_0_PROC_NAME		"/proc/maio/pages_0"
 #define MTRX_PROC_NAME			"/proc/maio/mtrx"
 #define MAP_PROC_NAME			"/proc/maio/map"
@@ -28,7 +30,7 @@
 
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
-	uint16_t len;
+	uint32_t len;
 	uint32_t poison;
 };
 
