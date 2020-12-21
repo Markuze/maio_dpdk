@@ -430,16 +430,18 @@ static inline void show_io(struct rte_mbuf *mbuf)
 }
 #define SHOW_IO show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++] = 0
+#define ring_entry(r)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
+
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 						struct rte_mbuf **bufs,
 						uint16_t *cnt, uint16_t nb_pkts)
 {
 	int i = 0;
 
-	while (ring->ring[ring->consumer & (ETH_MAIO_DFLT_NUM_DESCS - 1)])  {
+	while (ring_entry(ring))  {
 		struct rte_mbuf *mbuf;
 		struct io_md *md;
-		uint64_t addr = ring->ring[ring->consumer];
+		uint64_t addr = ring_entry(ring);
 
 		printf("Received[%ld] 0x%lx\n", ring->consumer, addr);
 		mbuf 	= (void *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
