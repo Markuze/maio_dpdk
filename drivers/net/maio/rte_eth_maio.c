@@ -429,7 +429,7 @@ static inline void show_io(struct rte_mbuf *mbuf)
 
 }
 #define SHOW_IO show_io
-#define advance_ring(r)		(r)->ring[(r)->consumer++] = 0
+#define advance_ring(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define ring_entry(r)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
 
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
@@ -529,11 +529,12 @@ error:
         return -1;
 }
 
+#define WRITE_BUFF_LEN	128
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
 	int mtrx_proc, len, i, k;
 	struct user_matrix *matrix;
-	char write_buffer[64] = {0};
+	char write_buffer[WRITE_BUFF_LEN] = {0};
 
 	matrix = rte_zmalloc_socket(NULL, sizeof(struct user_matrix) + DATA_MTRX_SZ,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
@@ -547,8 +548,9 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 		return -ENODEV;
 	}
 
-	len  = snprintf(write_buffer, 64, "%llx %lu\n", (unsigned long long)matrix,
-							sizeof(struct user_matrix) + DATA_MTRX_SZ);
+	len  = snprintf(write_buffer, WRITE_BUFF_LEN, "%llx %lu %d\n", (unsigned long long)matrix,
+							sizeof(struct user_matrix) + DATA_MTRX_SZ,
+							internals->if_index);
 	//TODO: Set to actual num_avail_cpus.
 	MAIO_LOG(ERR, ">>> seting user_matrix info @ %p\n", &matrix->info);
 	matrix->info.nr_rx_rings = 8;
