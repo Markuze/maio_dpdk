@@ -317,7 +317,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
         uint32_t buf_size, data_size;
 	int ret = 0;
 
-	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
+	MAIO_LOG(ERR, "HERE %d\n", __LINE__);
 
         /* Now get the space available for data in the mbuf */
         buf_size = rte_pktmbuf_data_room_size(mb_pool);
@@ -341,14 +341,24 @@ err:
 }
 
 static int eth_tx_queue_setup(struct rte_eth_dev *dev,
-				uint16_t tx_queue_id __rte_unused,
+				uint16_t tx_queue_id,
 				uint16_t nb_tx_desc __rte_unused,
 				unsigned int socket_id __rte_unused,
 				const struct rte_eth_txconf *tx_conf __rte_unused)
 {
-	struct pmd_internals *internals  __rte_unused = dev->data->dev_private;
+	static int tx_proc;
+	struct pmd_internals *internals  = dev->data->dev_private;
+	dev->data->tx_queues[tx_queue_id] = internals->matrix;
 
-	MAIO_LOG(ERR, "FIXME %d\n", __LINE__);
+	if (!tx_proc) {
+		if ((tx_proc = open(TX_PROC_NAME, O_RDWR)) < 0) {
+			MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+			return -ENODEV;
+		}
+	}
+
+	internals->matrix->tx[tx_queue_id].fd = tx_proc;
+	MAIO_LOG(ERR, "%s %d\n","HERE" ,__LINE__);
 
 	return 0;
 }
@@ -430,6 +440,7 @@ static inline void show_io(struct rte_mbuf *mbuf)
 }
 #define SHOW_IO show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
+#define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = p
 #define ring_entry(r)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
 
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
@@ -485,15 +496,49 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-/*TODO: FiXME
-	1. TX Func.
-*/
-static uint16_t eth_maio_tx(void *queue __rte_unused,
-				struct rte_mbuf **bufs __rte_unused,
+static inline int post_maio_ring(struct tx_user_ring *ring,
+					struct rte_mbuf **bufs,
+					uint16_t nb_pkts)
+{
+	int i = nb_pkts;
+
+	while (nb_pkts--)  {
+		struct rte_mbuf *mbuf = *bufs;
+		struct io_md *md;
+
+		if (ring_entry(ring))
+			return i - nb_pkts;
+
+		printf("mbuf %p: data %p offset %d\n", md, mbuf->buf_addr, mbuf->data_off);
+		ASSERT(mbuf->pool == maio_mb_pool);
+		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
+		md--;
+		md->poison = MAIO_POISON;
+		md->len = rte_pktmbuf_data_len(mbuf);
+
+		post_ring_entry(ring, ++md);
+		bufs++;
+	}
+	return i;
+}
+
+#define WRITE_BUFF_LEN	128
+static uint16_t eth_maio_tx(void *queue,
+				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
 {
-	/* NULL TX Send */
-	return nb_pkts ;
+	struct user_matrix *matrix = queue;
+	char write_buffer[WRITE_BUFF_LEN] = {0};
+	int len, rc = nb_pkts;
+
+	/* Fill Ring 0 -- Only Ring 0 is used today */
+	rc = post_maio_ring(&matrix->tx[0], bufs, nb_pkts);
+	printf("Posted %s %d/%d packets on lcore %d\n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, rte_lcore_id());
+	/* Ring DoorBell -- SysCall */
+
+	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d\n", rte_lcore_id());
+	len = write(matrix->tx[0].fd, write_buffer, len);
+	return rc;
 }
 
 static inline int get_iface_info(const char *if_name, struct rte_ether_addr *eth_addr, int *if_index)
@@ -529,7 +574,6 @@ error:
         return -1;
 }
 
-#define WRITE_BUFF_LEN	128
 static inline int setup_maio_matrix(struct pmd_internals *internals)
 {
 	int mtrx_proc, len, i, k;

@@ -7,6 +7,7 @@
 
 #define PAGES_0_PROC_NAME		"/proc/maio/pages_0"
 #define MTRX_PROC_NAME			"/proc/maio/mtrx"
+#define TX_PROC_NAME			"/proc/maio/tx"
 #define MAP_PROC_NAME			"/proc/maio/map"
 #define ENABLE_PROC_NAME		"/proc/maio/enable"
 #define ETH_MAIO_IFACE_ARG		"iface"
@@ -97,6 +98,13 @@ struct user_ring {
 
 };// __rte_cache_aligned;
 
+struct tx_user_ring {
+	unsigned long consumer;
+	unsigned long long *ring;
+	int fd;
+
+};// __rte_cache_aligned;
+
 struct user_matrix {
 	/* MUST BE FIRST - used by the Kernel */
 	struct common_ring_info info;
@@ -109,7 +117,7 @@ struct user_matrix {
 #endif
 	//Best for single core user I/O
 	struct user_ring rx[NUM_MAX_RINGS] __rte_cache_aligned;
-	struct user_ring tx[NUM_MAX_RINGS] __rte_cache_aligned;
+	struct tx_user_ring tx[NUM_MAX_RINGS] __rte_cache_aligned;
 
 	unsigned long long base[0] __rte_cache_aligned;
 };
