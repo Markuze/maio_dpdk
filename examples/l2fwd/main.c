@@ -165,6 +165,28 @@ l2fwd_mac_updating(struct rte_mbuf *m, unsigned dest_portid)
 }
 
 static void
+l2fwd_swap_headers(struct rte_mbuf *m)
+{
+	struct rte_ether_hdr *eth;
+	struct rte_ipv4_hdr *ip;
+	int tmp[RTE_ETHER_ADDR_LEN];
+
+	eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+
+	//swap MAC addresses
+	memcpy(tmp, eth->d_addr.addr_bytes, RTE_ETHER_ADDR_LEN);
+	memcpy(eth->d_addr.addr_bytes, eth->s_addr.addr_bytes, RTE_ETHER_ADDR_LEN);
+	memcpy(eth->s_addr.addr_bytes, tmp, RTE_ETHER_ADDR_LEN);
+
+	//swap IP addresses
+	ip = (struct rte_ipv4_hdr *)++eth;
+
+	ip->src_addr ^= ip->dst_addr;
+	ip->dst_addr ^= ip->src_addr;
+	ip->src_addr ^= ip->dst_addr;
+}
+
+static void
 l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
 {
 	unsigned dst_port;
@@ -173,9 +195,11 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
 
 	dst_port = l2fwd_dst_ports[portid];
 
+/*
 	if (mac_updating)
 		l2fwd_mac_updating(m, dst_port);
-
+*/
+	l2fwd_swap_headers(m);
 	buffer = tx_buffer[dst_port];
 	sent = rte_eth_tx_buffer(dst_port, 0, buffer, m);
 	if (sent)

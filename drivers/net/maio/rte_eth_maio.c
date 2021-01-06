@@ -412,32 +412,42 @@ static const struct eth_dev_ops ops = {
 };
 
 #define ETH_MAIO_STRIDE_MASK	(~(ETH_MAIO_MBUF_STRIDE -1))
-static inline void show_io(struct rte_mbuf *mbuf)
+static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 {
         struct rte_ether_hdr *eth, *tmp;
+        struct rte_ipv4_hdr *ip;
+	char write_buffer[128];
+	int len, cur = 0;
 
-	tmp = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
-	eth = (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
+	tmp 	= rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+	eth 	= (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
+	ip	= (struct rte_ipv4_hdr *)&eth[1];
 
-	printf("IN type: 0x%x: %p =?= %p\n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-		rte_cpu_to_be_16(eth->ether_type),
-		tmp, eth,
-		eth->d_addr.addr_bytes[0],
-		eth->d_addr.addr_bytes[1],
-		eth->d_addr.addr_bytes[2],
-		eth->d_addr.addr_bytes[3],
-		eth->d_addr.addr_bytes[4],
-		eth->d_addr.addr_bytes[5]);
-	printf(":S_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-		eth->s_addr.addr_bytes[0],
-		eth->s_addr.addr_bytes[1],
-		eth->s_addr.addr_bytes[2],
-		eth->s_addr.addr_bytes[3],
-		eth->s_addr.addr_bytes[4],
-		eth->s_addr.addr_bytes[5]);
-
-
+	len = snprintf(&write_buffer[cur], 128 - cur,"%s\n", str);
+	cur += len;
+	len = snprintf(&write_buffer[cur], 128 - cur, "IN type: 0x%x: %p =?= %p\n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+			rte_cpu_to_be_16(eth->ether_type),
+			tmp, eth,
+			eth->d_addr.addr_bytes[0],
+			eth->d_addr.addr_bytes[1],
+			eth->d_addr.addr_bytes[2],
+			eth->d_addr.addr_bytes[3],
+			eth->d_addr.addr_bytes[4],
+			eth->d_addr.addr_bytes[5]);
+	cur += len;
+	len = snprintf(&write_buffer[cur], 128 - cur, ":S_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+			eth->s_addr.addr_bytes[0],
+			eth->s_addr.addr_bytes[1],
+			eth->s_addr.addr_bytes[2],
+			eth->s_addr.addr_bytes[3],
+			eth->s_addr.addr_bytes[4],
+			eth->s_addr.addr_bytes[5]);
+	cur += len;
+	len = snprintf(&write_buffer[cur], 128 - cur,"SIP: %0x DIP: %0x\n",
+			ip->src_addr, ip->dst_addr);
+	printf(write_buffer);
 }
+
 #define SHOW_IO show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = p
@@ -467,7 +477,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		rte_pktmbuf_data_len(mbuf) = md->len;
 		bufs[i++] = mbuf;
 
-		SHOW_IO(mbuf);
+		SHOW_IO(mbuf, "RX");
 
 		if (--nb_pkts)
 			break;
@@ -509,6 +519,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		if (ring_entry(ring))
 			return i - nb_pkts;
 
+		SHOW_IO(mbuf, "TX");
 		printf("mbuf %p: data %p offset %d\n", md, mbuf->buf_addr, mbuf->data_off);
 		ASSERT(mbuf->pool == maio_mb_pool);
 		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
