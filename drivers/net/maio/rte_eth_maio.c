@@ -472,7 +472,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf(write_buffer);
 }
 
-#define SHOW_IO //show_io
+#define SHOW_IO(...) //show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = p
 #define ring_entry(r)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
@@ -583,7 +583,7 @@ static uint16_t eth_maio_tx(void *queue,
 
 	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d\n", rte_lcore_id());
 	len = write(matrix->tx[0].fd, write_buffer, len);
-	printf("Posted %s %d/%d packets on lcore %d [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, rte_lcore_id(), len);
+	//printf("Posted %s %d/%d packets on lcore %d [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, rte_lcore_id(), len);
 	return rc;
 }
 
