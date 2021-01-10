@@ -36,7 +36,6 @@ static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
 #define WRITE_BUFF_LEN	256
-#define MAIO_HEADROOM	192
 
 #define COOKIE "=-="
 #define MAIO_LOG(level, fmt, args...)                 \
@@ -473,10 +472,21 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf(write_buffer);
 }
 
-#define SHOW_IO show_io
+#define SHOW_IO //show_io
 #define advance_ring(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = p
 #define ring_entry(r)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
+
+	//((t)((char *)(m)->buf_addr + (m)->data_off + (o)))
+static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
+{
+	uint64_t data = ((addr & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
+	struct rte_mbuf *mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
+
+	ASSERT(data > (uint64_t)mbuf->buf_addr);
+	mbuf->data_off = data - (uint64_t)mbuf->buf_addr;
+	return mbuf;
+}
 
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 						struct rte_mbuf **bufs,
@@ -489,10 +499,10 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		struct io_md *md;
 		uint64_t addr = ring_entry(ring);
 
-		printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, ((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET));
-		mbuf 	= (void *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
+		mbuf 	= maio_addr2mbuf(addr);
+		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//TODO: Fix mbuf data_off
-		printf("mbuf %p: data %p offset %d/%d\n", mbuf, mbuf->buf_addr, mbuf->data_off, ALLIGNED_MBUF_OFFSET);
+		//printf("mbuf %p: data %p offset %d/%d\n", mbuf, mbuf->buf_addr, mbuf->data_off, ALLIGNED_MBUF_OFFSET);
 		md = (void *)((addr & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
 		md--;
 		advance_ring(ring);
@@ -547,9 +557,8 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-		//TODO: Fix this!!! prev should work!
-		md = (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
-		printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+		ASSERT(((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM) == (uint64_t)(md));
+		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
 		md--;
 		md->poison = MAIO_POISON;
 		md->len = rte_pktmbuf_data_len(mbuf);
