@@ -1078,7 +1078,6 @@ struct i40e_vf {
 	struct virtchnl_vsi_resource *vsi_res; /* LAN VSI */
 	struct i40e_vsi vsi;
 	uint64_t flags;
-	struct i40e_eth_stats stats;
 };
 
 #define I40E_MAX_PKT_TYPE  256

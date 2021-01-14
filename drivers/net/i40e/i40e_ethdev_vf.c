@@ -316,19 +316,6 @@ _atomic_set_cmd(struct i40e_vf *vf, enum virtchnl_ops ops)
 #define MAX_TRY_TIMES 200
 #define ASQ_DELAY_MS  10
 
-static void
-i40evf_complete_vf_cmd(struct rte_eth_dev *dev)
-{
-	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
-	switch (vf->pend_cmd) {
-	case VIRTCHNL_OP_GET_STATS:
-		vf->stats = *(struct i40e_eth_stats *)vf->aq_resp;
-		break;
-	default:
-		break;
-	}
-}
-
 static int
 i40evf_execute_vf_cmd(struct rte_eth_dev *dev, struct vf_cmd_info *args)
 {
@@ -356,7 +343,6 @@ i40evf_execute_vf_cmd(struct rte_eth_dev *dev, struct vf_cmd_info *args)
 
 	switch (args->ops) {
 	case VIRTCHNL_OP_RESET_VF:
-	case VIRTCHNL_OP_GET_STATS:
 		/*no need to process in this function */
 		err = 0;
 		break;
@@ -914,7 +900,7 @@ i40evf_query_stats(struct rte_eth_dev *dev, struct i40e_eth_stats **pstats)
 		*pstats = NULL;
 		return err;
 	}
-	*pstats = &vf->stats;
+	*pstats = (struct i40e_eth_stats *)args.out_buffer;
 	return 0;
 }
 
@@ -1056,9 +1042,18 @@ i40evf_add_vlan(struct rte_eth_dev *dev, uint16_t vlanid)
 	args.out_buffer = vf->aq_resp;
 	args.out_size = I40E_AQ_BUF_SZ;
 	err = i40evf_execute_vf_cmd(dev, &args);
-	if (err)
+	if (err) {
 		PMD_DRV_LOG(ERR, "fail to execute command OP_ADD_VLAN");
-
+		return err;
+	}
+	/**
+	* In linux kernel driver on receiving ADD_VLAN it enables
+	* VLAN_STRIP by default. So reconfigure the vlan_offload
+	* as it was done by the app earlier.
+	*/
+	err = i40evf_vlan_offload_set(dev, ETH_VLAN_STRIP_MASK);
+	if (err)
+		PMD_DRV_LOG(ERR, "fail to set vlan_strip");
 	return err;
 }
 
@@ -1434,7 +1429,6 @@ i40evf_handle_aq_msg(struct rte_eth_dev *dev)
 				/* read message and it's expected one */
 				if (msg_opc == vf->pend_cmd) {
 					vf->cmd_retval = msg_ret;
-					i40evf_complete_vf_cmd(dev);
 					/* prevent compiler reordering */
 					rte_compiler_barrier();
 					_clear_cmd(vf);
@@ -1673,7 +1667,6 @@ i40evf_vlan_offload_set(struct rte_eth_dev *dev, int mask)
 
 	if (!(vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_VLAN))
 		return -ENOTSUP;
-
 	/* Vlan stripping setting */
 	if (mask & ETH_VLAN_STRIP_MASK) {
 		/* Enable or disable VLAN stripping */
@@ -1682,7 +1675,6 @@ i40evf_vlan_offload_set(struct rte_eth_dev *dev, int mask)
 		else
 			i40evf_disable_vlan_strip(dev);
 	}
-
 	return 0;
 }
 
