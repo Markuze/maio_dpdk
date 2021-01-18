@@ -18,7 +18,7 @@
 #define ETH_MAIO_MBUF_STRIDE		0x800 	// TODO: same as frame size - need to check if redundant
 #define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 #define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
-#define ETH_MAIO_DFLT_NUM_DESCS		512
+#define ETH_MAIO_DFLT_NUM_DESCS		1024
 #define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
 #define MAIO_HEADROOM			192
 
