@@ -14,13 +14,14 @@
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
 #define ALLIGNED_MBUF_OFFSET (sizeof(struct rte_mempool_objhdr))
-#define ETH_MAIO_FRAME_SIZE		2048
-#define ETH_MAIO_MBUF_STRIDE		0x800 	// TODO: same as frame size - need to check if redundant
+#define ETH_MAIO_FRAME_SIZE		4096
+#define ETH_MAIO_MBUF_STRIDE		0x1000 	// TODO: same as frame size - need to check if redundant
 #define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
+#define ETH_MAIO_STRIDE_MASK		(~(ETH_MAIO_MBUF_STRIDE -1))
 #define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 #define ETH_MAIO_DFLT_NUM_DESCS		1024
 #define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
-#define MAIO_HEADROOM			192
+#define MAIO_HEADROOM			(1024-128)
 
 #define NUM_MAX_RINGS	16
 #define NUM_RING_TYPES	2
@@ -103,6 +104,7 @@ struct tx_user_ring {
 	unsigned long consumer;
 	unsigned long long *ring;
 	int fd;
+	int idx;
 
 };// __rte_cache_aligned;
 
