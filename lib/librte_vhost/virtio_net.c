@@ -1598,6 +1598,7 @@ virtio_dev_extbuf_free(void *addr __rte_unused, void *opaque)
 	rte_free(opaque);
 }
 
+/* EXAMLE: Awsome example for extbuf receive */
 static int
 virtio_dev_extbuf_alloc(struct rte_mbuf *pkt, uint32_t size)
 {

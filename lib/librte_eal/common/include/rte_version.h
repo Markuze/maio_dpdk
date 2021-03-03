@@ -41,7 +41,8 @@ extern "C" {
 static inline const char *
 rte_version(void)
 {
-	static char version[32];
+	static char version[32]; //= "velo";
+
 	if (version[0] != 0)
 		return version;
 	if (strlen(RTE_VER_SUFFIX) == 0)

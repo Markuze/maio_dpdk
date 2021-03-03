@@ -149,7 +149,7 @@ rte_mem_iova2virt(rte_iova_t iova);
  * @return
  *   Memseg pointer on success, or NULL on error.
  */
-__rte_experimental
+//__rte_experimental
 struct rte_memseg *
 rte_mem_virt2memseg(const void *virt, const struct rte_memseg_list *msl);
 
@@ -260,7 +260,7 @@ rte_memseg_contig_walk(rte_memseg_contig_walk_t func, void *arg);
  *   1 if stopped by the user
  *   -1 if user function reported error
  */
-__rte_experimental
+//__rte_experimental
 int
 rte_memseg_list_walk(rte_memseg_list_walk_t func, void *arg);
 
