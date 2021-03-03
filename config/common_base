@@ -455,6 +455,11 @@ CONFIG_RTE_LIBRTE_VMXNET3_DEBUG_TX_FREE=n
 CONFIG_RTE_LIBRTE_PMD_AF_PACKET=n
 
 #
+# Compile software PMD backed by MAIO sockets (MAIO Linux only)
+#
+CONFIG_RTE_LIBRTE_PMD_MAIO=y
+
+#
 # Compile software PMD backed by AF_XDP sockets (Linux only)
 #
 CONFIG_RTE_LIBRTE_PMD_AF_XDP=n
