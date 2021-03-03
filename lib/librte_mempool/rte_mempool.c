@@ -819,6 +819,7 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		return NULL;
 	}
 
+	flags |= MEMPOOL_F_NO_SPREAD|MEMPOOL_F_NO_CACHE_ALIGN;
 	/* "no cache align" imply "no spread" */
 	if (flags & MEMPOOL_F_NO_CACHE_ALIGN)
 		flags |= MEMPOOL_F_NO_SPREAD;
@@ -828,6 +829,8 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		rte_errno = EINVAL;
 		return NULL;
 	}
+	RTE_LOG(ERR, MEMPOOL, "objsz %u\n", objsz.total_size);
+
 
 	rte_mcfg_mempool_write_lock();
 
