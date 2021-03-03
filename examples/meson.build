@@ -103,6 +103,7 @@ foreach example: examples
 			link_args: dpdk_extra_ldflags,
 			c_args: cflags,
 			dependencies: dep_objs)
+		message('Built example "' + name + '"')
 	elif not allow_skips
 		error('Cannot build requested example "' + name + '"')
 	else
