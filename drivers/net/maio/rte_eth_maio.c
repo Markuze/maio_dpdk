@@ -128,6 +128,10 @@ static int eth_dev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_in
 	dev_info->default_rxportconf.ring_size = ETH_MAIO_DFLT_NUM_DESCS;
 	dev_info->default_txportconf.ring_size = ETH_MAIO_DFLT_NUM_DESCS;
 
+/*
+        dev_info->tx_offload_capa = DEV_TX_OFFLOAD_MULTI_SEGS |
+                DEV_TX_OFFLOAD_VLAN_INSERT;
+*/
 	return 0;
 }
 
@@ -297,7 +301,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 #endif
 		pages->bufs[p++] = mbufs[i];
 		if (!(i & 0x1ff)) {
-			MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", pages->bufs[i],
+			MAIO_LOG(ERR, "mbuf %p[%llx] data %p[%llx]\n", pages->bufs[i],
 				(unsigned long long)pages->bufs[i] & ~ETH_MAIO_STRIDE_MASK,
 				mbufs[i]->buf_addr,
 				(unsigned long long)mbufs[i]->buf_addr & ~ETH_MAIO_STRIDE_MASK);
