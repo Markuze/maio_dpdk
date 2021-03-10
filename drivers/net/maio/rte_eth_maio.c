@@ -320,7 +320,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	pages->nr_pages = p;
 	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
-	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ETH_MAIO_STRIDE_MASK;
+	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ~ETH_MAIO_STRIDE_MASK;
 	pages->flags    = 0xC0CE;
 	i = write(proc, pages, pages_sz);
 	printf("%s: sent to %s [%lu] first addr %p [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], i);
