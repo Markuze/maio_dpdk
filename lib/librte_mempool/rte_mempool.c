@@ -829,6 +829,7 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		rte_errno = EINVAL;
 		return NULL;
 	}
+	fprintf(stderr, "[%s]Line %d" "objsz %u\n", __FUNCTION__, __LINE__, objsz.total_size);
 	RTE_LOG(ERR, MEMPOOL, "objsz %u\n", objsz.total_size);
 
 

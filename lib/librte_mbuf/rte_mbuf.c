@@ -130,6 +130,8 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	memset(&mbp_priv, 0, sizeof(mbp_priv));
 	mbp_priv.mbuf_data_room_size = data_room_size;
 	mbp_priv.mbuf_priv_size = priv_size;
+	
+	fprintf(stderr, "[%s]Line %d" "elemt size %u [%u + %u]\n", __FUNCTION__, __LINE__, elt_size, data_room_size, priv_size);
 
 	mp = rte_mempool_create_empty(name, n, elt_size, cache_size,
 		 sizeof(struct rte_pktmbuf_pool_private), socket_id, 0);
