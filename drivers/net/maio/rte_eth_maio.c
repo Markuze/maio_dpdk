@@ -276,12 +276,12 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	memory_ready = 1;
 
-	len = mb_pool->populated_size >> 1;
+	len = min(ETH_MAIO_NUM_INIT_BUFFS, mb_pool->populated_size >> 1);
 
 	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
 	pages_sz =  sizeof(struct meta_pages_0) + (len *  sizeof(void *));
-	printf("%lu = %lu + (%u  * %lu)\n", pages_sz , sizeof(struct meta_pages_0) ,len , sizeof(void *));
+	fprintf(stderr, "%s}%lu = %lu + (%u  * %lu)\n", __FUNCTION__, pages_sz , sizeof(struct meta_pages_0) ,len , sizeof(void *));
 	pages = rte_zmalloc_socket(NULL, pages_sz, RTE_CACHE_LINE_SIZE, rte_socket_id());
 
 	MAIO_LOG(ERR, "push mem to Kernel %d, allocating %d mbufs [%d pages]\n", __LINE__, len, len);
@@ -292,8 +292,8 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
 	maio_map_memory(get_base_addr(mb_pool), (mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE) >> 21);
-	//first mbuf is expected to be not page-aligned
-	for (i = 1, p = 0; i < len; i++) {
+
+	for (i = 0, p = 0; i < len; i++) {
 #if 0
 		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
 			continue;
@@ -323,14 +323,16 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ~ETH_MAIO_STRIDE_MASK;
 	pages->flags    = 0xC0CE;
 	i = write(proc, pages, pages_sz);
-	printf("%s: sent to %s [%lu] first addr %p [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], i);
+	fprintf(stderr, "%s: sent to %s [%lu] first addr %p [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], i);
 
 	rte_free(mbufs);
 	rte_free(pages);
+
 	if (i) {
-		printf("FAILED TO POPULATE MAG!!!\n");
+		fprintf(stderr, "FAILED TO POPULATE MAG!!!\n");
 		return i;
 	}
+
 	maio_mb_pool = mb_pool;
 	return 0;
 }
@@ -348,6 +350,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 
 	MAIO_LOG(ERR, "HERE %d\n", __LINE__);
 
+#if 0
         /* Now get the space available for data in the mbuf */
         buf_size = rte_pktmbuf_data_room_size(mb_pool);
         data_size = 1514;
@@ -360,7 +363,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
         }
 	MAIO_LOG(ERR, "%s: %d bytes will fit in mbuf (%d bytes)\n",
 		dev->device->name, data_size, buf_size);
-
+#endif
 	maio_map_mbuf(mb_pool);
 	dev->data->rx_queues[rx_queue_id] = internals->matrix;
 
@@ -443,21 +446,20 @@ static const struct eth_dev_ops ops = {
 
 static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 {
-        struct rte_ether_hdr *eth, *tmp;
-        struct rte_ipv4_hdr *ip;
+	struct rte_ether_hdr *eth;
+	struct rte_ipv4_hdr *ip;
 	char write_buffer[WRITE_BUFF_LEN];
 	int len, cur = 0;
 
-	tmp 	= rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
-	eth 	= (void *)((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
+	eth 	= rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 	ip	= (struct rte_ipv4_hdr *)&eth[1];
 
 	//len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s\n", str);
 	//cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s:IN type: 0x%x: %p =?= %p\n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s:IN type: 0x%x: %p \n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			str,
 			rte_cpu_to_be_16(eth->ether_type),
-			tmp, eth,
+			eth,
 			eth->d_addr.addr_bytes[0],
 			eth->d_addr.addr_bytes[1],
 			eth->d_addr.addr_bytes[2],
@@ -488,11 +490,10 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	//((t)((char *)(m)->buf_addr + (m)->data_off + (o)))
 static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 {
-	uint64_t data = ((addr & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
 	struct rte_mbuf *mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
 
-	ASSERT(data > (uint64_t)mbuf->buf_addr);
-	mbuf->data_off = data - (uint64_t)mbuf->buf_addr;
+	ASSERT(addr > (uint64_t)mbuf->buf_addr);
+	mbuf->data_off = addr - (uint64_t)mbuf->buf_addr;
 	return mbuf;
 }
 
@@ -511,7 +512,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//TODO: Fix mbuf data_off
 		//printf("mbuf %p: data %p offset %d/%d\n", mbuf, mbuf->buf_addr, mbuf->data_off, ALLIGNED_MBUF_OFFSET);
-		md = (void *)((addr & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM);
+		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md--;
 		advance_ring(ring);
 		ASSERT(mbuf->pool == maio_mb_pool);
@@ -565,7 +566,6 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-		ASSERT(((((unsigned long)mbuf) & ETH_MAIO_STRIDE_MASK) + MAIO_HEADROOM) == (uint64_t)(md));
 		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
 		md--;
 		md->poison = MAIO_POISON;
