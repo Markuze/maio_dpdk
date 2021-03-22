@@ -37,10 +37,10 @@ static int maio_logtype;
 
 #define WRITE_BUFF_LEN	256
 
-#define COOKIE "=-="
+#define COOKIE "=^="
 #define MAIO_LOG(level, fmt, args...)                 \
-        rte_log(RTE_LOG_ ## level, maio_logtype,      \
-                "%s(): "COOKIE fmt, __func__, ##args)
+	fprintf(stderr, COOKIE fmt, ##args);
+
 
 #define ASSERT(exp)								\
 		if (!(exp))							\
@@ -262,7 +262,8 @@ static inline uint64_t get_base_addr(struct rte_mempool *mp)
 	struct rte_mempool_memhdr *memhdr;
 
 	memhdr = STAILQ_FIRST(&mp->mem_list);
-	return (uint64_t)memhdr->addr & ~(getpagesize() - 1);
+//	return (uint64_t)memhdr->addr & ~(getpagesize() - 1);
+	return (uint64_t)memhdr->addr & ~(HP_MASK);
 }
 
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
@@ -294,7 +295,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
         }
 
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
-	maio_map_memory((void *)get_base_addr(mb_pool), (mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE) >> 21);
+	maio_map_memory((void *)get_base_addr(mb_pool), DIV_ROUND_UP_HP((mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE)));
 	//first mbuf is expected to be not page-aligned
 	for (i = 0, p = 0; i < len; i++) {
 #if 0
@@ -486,7 +487,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
-#define SHOW_IO(...) //show_io
+#define SHOW_IO show_io
 #define advance_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = (unsigned long)p
 #define ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
@@ -515,7 +516,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//TODO: Fix mbuf data_off
-		//printf("mbuf %p: data %p offset %d/%d\n", mbuf, mbuf->buf_addr, mbuf->data_off, ALLIGNED_MBUF_OFFSET);
+		printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md--;
 		advance_ring(ring);
@@ -570,7 +571,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+		printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
 		md--;
 		md->poison = MAIO_POISON;
 		md->len = rte_pktmbuf_data_len(mbuf);
@@ -659,6 +660,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	matrix->info.nr_tx_rings = 8;
 	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
+
 	for (i = 0, k = 0; i < NUM_MAX_RINGS; i++) {
 		matrix->rx[i].ring = matrix->info.rx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];

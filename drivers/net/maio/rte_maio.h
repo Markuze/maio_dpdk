@@ -34,6 +34,11 @@
 #define max(a, b) (a > b ? (uint64_t)a : (uint64_t)b)
 #define min(a, b) (a < b ? (uint64_t)a : (uint64_t)b)
 
+#define HP_SHIFT	21
+#define HP_SIZE		(1<<HP_SHIFT)
+#define HP_MASK		(HP_SIZE-1)
+#define ALIGN_HP(x)    	(((x) + (HP_MASK)) & ~(HP_MASK))
+#define DIV_ROUND_UP_HP(n) (((n) + HP_MASK) >> HP_SHIFT)
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
 	uint32_t len;
