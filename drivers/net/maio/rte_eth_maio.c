@@ -39,8 +39,7 @@ static int maio_logtype;
 
 #define COOKIE "=-="
 #define MAIO_LOG(level, fmt, args...)                 \
-        rte_log(RTE_LOG_ ## level, maio_logtype,      \
-                "%s(): "COOKIE fmt, __func__, ##args)
+        fprintf(stderr, "%s: "COOKIE fmt, __func__, ##args)
 
 #define ASSERT(exp)								\
 		if (!(exp))							\
@@ -97,8 +96,23 @@ static int eth_dev_start(struct rte_eth_dev *dev)
 static void eth_dev_close(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals __rte_unused = dev->data->dev_private;
+	char str[16] = "1";
+	int fd;
 
 	MAIO_LOG(ERR, "Closing MAIO ethdev on numa socket %u\n", rte_socket_id());
+
+	if ((fd = open(STOP_PROC_NAME, O_RDWR)) < 0) {
+		MAIO_LOG(ERR, "Failed to change str %d\n", __LINE__);
+		return;
+	}
+
+	write(fd, str, strlen(str));
+	MAIO_LOG(ERR, "Change str %s[%ld] fd %d [%s]\n", str, strlen(str), fd, STOP_PROC_NAME);
+
+	close(fd);
+
+	return;
+
 }
 
 static int eth_dev_configure(struct rte_eth_dev *dev __rte_unused)
