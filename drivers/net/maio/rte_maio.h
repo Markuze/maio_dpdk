@@ -10,6 +10,8 @@
 #define TX_PROC_NAME			"/proc/maio/tx"
 #define MAP_PROC_NAME			"/proc/maio/map"
 #define ENABLE_PROC_NAME		"/proc/maio/enable"
+#define STOP_PROC_NAME                  "/proc/maio/stop"
+
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
