@@ -48,10 +48,10 @@ struct io_md {
 };
 
 struct meta_pages_0 {
-	uint16_t nr_pages;
-	uint16_t stride;
-	uint16_t headroom;
-	uint16_t flags;
+	uint32_t nr_pages;
+	uint32_t stride;
+	uint32_t headroom;
+	uint32_t flags;
 	void *bufs[0];
 };
 
