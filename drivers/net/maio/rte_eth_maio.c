@@ -308,9 +308,10 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
-
+#if 0
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
 	maio_map_memory((void *)get_base_addr(mb_pool), DIV_ROUND_UP_HP((mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE)));
+#endif
 	for (i = 0; i < len; i++) {
 #if 0
 		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
