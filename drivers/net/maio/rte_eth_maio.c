@@ -37,9 +37,9 @@ static int maio_logtype;
 
 #define WRITE_BUFF_LEN	256
 
-#define COOKIE "=^="
+#define COOKIE "--"
 #define MAIO_LOG(level, fmt, args...)                 \
-	fprintf(stderr, COOKIE fmt, ##args);
+	fprintf(stderr, "%s)"COOKIE fmt, __FUNCTION__, ##args);
 
 
 #define ASSERT(exp)								\
@@ -283,7 +283,7 @@ static inline uint64_t get_base_addr(struct rte_mempool *mp)
 
 static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 {
-	int i, proc, len, p;
+	int i, proc, len;
 	size_t pages_sz;
 	struct meta_pages_0 *pages;
 	struct rte_mbuf **mbufs;
@@ -311,20 +311,21 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
 	maio_map_memory((void *)get_base_addr(mb_pool), DIV_ROUND_UP_HP((mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE)));
-	//first mbuf is expected to be not page-aligned
-	for (i = 0, p = 0; i < len; i++) {
+	for (i = 0; i < len; i++) {
 #if 0
 		if ((unsigned long long)mbufs[i] & ETH_MAIO_MBUF_STRIDE) {
 			continue;
 		}
 #endif
-		pages->bufs[p++] = mbufs[i];
+		pages->bufs[i] = mbufs[i];
+#if 0
 		if (!(i & 0x1ff)) {
 			MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", pages->bufs[i],
 				(unsigned long long)pages->bufs[i] & ~ETH_MAIO_STRIDE_MASK,
 				mbufs[i]->buf_addr,
 				(unsigned long long)mbufs[i]->buf_addr & ~ETH_MAIO_STRIDE_MASK);
 		}
+#endif
 	}
 
 	/* TODO: Check if region mapped - and mapp anew (af_xdp shit)
@@ -337,12 +338,12 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 		return -ENODEV;
 	}
 
-	pages->nr_pages = p;
+	pages->nr_pages = len;
 	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
 	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ~ETH_MAIO_STRIDE_MASK;
 	pages->flags    = 0xC0CE;
 	i = write(proc, pages, pages_sz);
-	fprintf(stderr, "%s: sent to %s [%lu] first addr %p [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], i);
+	fprintf(stderr, "%s: sent to %s [%lu] first addr %p of %d [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], len, i);
 
 	rte_free(mbufs);
 	rte_free(pages);
