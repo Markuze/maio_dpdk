@@ -797,7 +797,7 @@ free_kvlist:
 */
 static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 {
-	struct in_params in_params = {0};
+	struct in_params in_params = {""};
         struct rte_kvargs *kvlist;
         struct rte_eth_dev *eth_dev = NULL;
         const char *name;
