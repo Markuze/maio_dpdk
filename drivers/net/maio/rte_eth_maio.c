@@ -504,7 +504,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
-#define SHOW_IO show_io
+#define SHOW_IO(...)
 #define advance_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = (unsigned long)p
 #define ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
@@ -533,7 +533,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//TODO: Fix mbuf data_off
-		printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
+		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md--;
 		advance_ring(ring);
@@ -572,6 +572,30 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
+static inline struct io_md *get_mbuf(struct rte_mbuf *mbuf)
+{
+	static int i;
+	struct io_md *md = rte_pktmbuf_mtod(mbuf, struct io_md *);
+#if 0
+	if (i) {
+		struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
+		struct io_md *new_md;
+
+		if (!new)
+			return md;
+
+		new_md = rte_pktmbuf_mtod(new, struct io_md *);
+
+		//printf("Copying mbuf %p\n", mbuf);
+		memcpy(new_md, md, rte_pktmbuf_data_len(mbuf));
+		md = new_md;
+	}
+
+	i ^= 1;
+#endif
+	return md;
+}
+
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts)
@@ -587,8 +611,9 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
-		md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-		printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+		//md = rte_pktmbuf_mtod(mbuf, struct io_md *);
+		md = get_mbuf(mbuf);
+		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
 		md--;
 		md->poison = MAIO_POISON;
 		md->len = rte_pktmbuf_data_len(mbuf);
@@ -683,6 +708,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 		matrix->tx[i].ring = matrix->info.tx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
+		ASSERT((u64)&matrix->tx[i].ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (u64)&matrix->base[DATA_MTRX_SZ])
 	}
 
 	len = write(mtrx_proc, write_buffer, len);
@@ -798,9 +824,9 @@ free_kvlist:
 static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 {
 	struct in_params in_params = {""};
-        struct rte_kvargs *kvlist;
-        struct rte_eth_dev *eth_dev = NULL;
-        const char *name;
+	struct rte_kvargs *kvlist;
+	struct rte_eth_dev *eth_dev = NULL;
+	const char *name;
 
 	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
         MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
