@@ -708,7 +708,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 		matrix->tx[i].ring = matrix->info.tx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
-		ASSERT((u64)&matrix->tx[i].ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (u64)&matrix->base[DATA_MTRX_SZ])
+		ASSERT((unsigned long)&matrix->tx[i].ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (unsigned long)&matrix->base[DATA_MTRX_SZ]);
 	}
 
 	len = write(mtrx_proc, write_buffer, len);
