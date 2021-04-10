@@ -308,7 +308,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
-#if 0
+#if 1
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
 	maio_map_memory((void *)get_base_addr(mb_pool), DIV_ROUND_UP_HP((mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE)));
 #endif
@@ -504,7 +504,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
-#define SHOW_IO show_io
+#define SHOW_IO(...)
 #define advance_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = (unsigned long)p
 #define ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
@@ -533,7 +533,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//TODO: Fix mbuf data_off
-		printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
+		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md--;
 		advance_ring(ring);
@@ -576,17 +576,23 @@ static inline struct io_md *get_mbuf(struct rte_mbuf *mbuf)
 {
 	static int i;
 	struct io_md *md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-
+#if 0
 	if (i) {
 		struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
-		struct io_md *new_md = rte_pktmbuf_mtod(new, struct io_md *);
+		struct io_md *new_md;
 
-		printf("Copying mbuf %p\n", mbuf);
+		if (!new)
+			return md;
+
+		new_md = rte_pktmbuf_mtod(new, struct io_md *);
+
+		//printf("Copying mbuf %p\n", mbuf);
 		memcpy(new_md, md, rte_pktmbuf_data_len(mbuf));
 		md = new_md;
 	}
 
 	i ^= 1;
+#endif
 	return md;
 }
 
@@ -607,7 +613,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		ASSERT(mbuf->pool == maio_mb_pool);
 		//md = rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md = get_mbuf(mbuf);
-		printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
 		md--;
 		md->poison = MAIO_POISON;
 		md->len = rte_pktmbuf_data_len(mbuf);
@@ -702,6 +708,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 		matrix->tx[i].ring = matrix->info.tx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
+		ASSERT((u64)&matrix->tx[i].ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (u64)&matrix->base[DATA_MTRX_SZ])
 	}
 
 	len = write(mtrx_proc, write_buffer, len);
