@@ -55,6 +55,17 @@ struct meta_pages_0 {
 	void *bufs[0];
 };
 
+struct q_stat {
+	uint32_t pkts;
+	uint32_t bytes;
+	uint32_t err;
+};
+
+struct pmd_stats {
+	struct q_stat	rx_queue[NUM_MAX_RINGS];
+	struct q_stat	tx_queue[NUM_MAX_RINGS];
+};
+
 struct common_ring_info {
 	uint32_t nr_rx_rings;
 	uint32_t nr_tx_rings;
@@ -120,6 +131,9 @@ struct tx_user_ring {
 struct user_matrix {
 	/* MUST BE FIRST - used by the Kernel */
 	struct common_ring_info info;
+
+	/* user land*/
+	struct pmd_stats	stats;
 #if 0
 	//SMP_MULTIPLE_POLLERS
 	struct user_rings rx ;
