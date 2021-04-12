@@ -34,6 +34,7 @@
 
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
+static int lwm_mark_trigger;
 
 #define WRITE_BUFF_LEN	256
 
@@ -519,6 +520,26 @@ static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 	return mbuf;
 }
 
+static inline int addr_wm_signal(uint64_t addr)
+{
+	struct rte_mbuf *mbuf;
+
+	if (addr == MAIO_POISON) {
+		lwm_mark_trigger = 1;
+		return 1;
+	}
+
+	//page aligned address is a refill packet
+	if (addr & ETH_MAIO_STRIDE_MASK) {
+		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
+		/*TODO: Add rte_pktmbuf_free optimization */
+		rte_pktmbuf_free(mbuf);
+		return 1;
+	}
+
+	return 0;
+}
+
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 						struct rte_mbuf **bufs,
 						uint16_t *cnt, uint16_t nb_pkts)
@@ -530,9 +551,10 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		struct io_md *md;
 		uint64_t addr = ring_entry(ring);
 
+		if (addr_wm_signal(addr))
+			continue;
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
-		//TODO: Fix mbuf data_off
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md--;
@@ -574,9 +596,9 @@ static uint16_t eth_maio_rx(void *queue,
 
 static inline struct io_md *get_mbuf(struct rte_mbuf *mbuf)
 {
-	static int i;
 	struct io_md *md = rte_pktmbuf_mtod(mbuf, struct io_md *);
 #if 0
+	static int i;
 	if (i) {
 		struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
 		struct io_md *new_md;
@@ -624,6 +646,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 	return i;
 }
 
+#define REFILL_NUM	32
 static uint16_t eth_maio_tx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
@@ -632,6 +655,15 @@ static uint16_t eth_maio_tx(void *queue,
 	char write_buffer[WRITE_BUFF_LEN] = {0};
 	int len, rc = nb_pkts;
 
+	if (lwm_mark_trigger) {
+		struct rte_mbuf *mbufs[REFILL_NUM];
+		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
+			MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
+			return -ENOMEM;
+		}
+		rc = post_maio_ring(&matrix->tx[0], mbufs, REFILL_NUM);
+		lwm_mark_trigger = 0;
+	}
 	/* Fill Ring 0 -- Only Ring 0 is used today */
 	rc = post_maio_ring(&matrix->tx[0], bufs, nb_pkts);
 	/* Ring DoorBell -- SysCall */
