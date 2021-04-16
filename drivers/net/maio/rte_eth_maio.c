@@ -5,6 +5,12 @@
 #include <string.h>
 #include <fcntl.h>
 
+/* trace_write block*/
+#include <stdarg.h>	//va_...
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
 #include <sys/ioctl.h>
 #include <linux/sockios.h>
 #include <linux/if_ether.h>
@@ -36,12 +42,17 @@ static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 static int lwm_mark_trigger;
 
+#define trace_marker 	"/sys/kernel/tracing/trace_marker"
+static int trace_fd;
+
 #define WRITE_BUFF_LEN	256
 
 #define COOKIE "--"
-#define MAIO_LOG(level, fmt, args...)                 \
-	fprintf(stderr, "%s)"COOKIE fmt, __FUNCTION__, ##args);
-
+#define MAIO_LOG(level, fmt, args...)                 		\
+	do {							\
+		fprintf(stderr, "%s)"COOKIE fmt, __FUNCTION__, ##args); \
+		trace_write(fmt, ##args);				\
+	 } while (0)
 
 #define ASSERT(exp)								\
 		if (!(exp))							\
@@ -60,6 +71,22 @@ static const struct rte_eth_link pmd_link = {
         .link_status = ETH_LINK_DOWN,
         .link_autoneg = ETH_LINK_AUTONEG
 };
+
+void trace_write(const char *fmt, ...)
+{
+        va_list ap;
+        char buf[256];
+        int n;
+
+        if (trace_fd < 0)
+                return;
+
+        va_start(ap, fmt);
+        n = vsnprintf(buf, 256, fmt, ap);
+        va_end(ap);
+
+        write(trace_fd, buf, n);
+}
 
 static inline int maio_set_state(const char *state)
 {
@@ -567,7 +594,7 @@ static inline int addr_wm_signal(uint64_t addr)
 	}
 
 	//page aligned address is a refill packet
-	if (addr & ETH_MAIO_STRIDE_MASK) {
+	if (!(addr & ETH_MAIO_STRIDE_MASK)) {
 		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
 		/*TODO: Add rte_pktmbuf_free optimization */
 		rte_pktmbuf_free(mbuf);
@@ -921,6 +948,9 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 
 	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
         MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
+
+	trace_fd = open(trace_marker, O_WRONLY);
+	MAIO_LOG(ERR, "tarfe_fd %d\n", trace_fd);
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
