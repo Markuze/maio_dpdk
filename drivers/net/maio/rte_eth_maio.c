@@ -585,17 +585,22 @@ static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 	return mbuf;
 }
 
-static int random_drop()
+static int random_drop(void)
 {
-	static int cnt;
+	static unsigned long	cnt;
+	static unsigned long	dropped;
 
 	cnt++;
 
 	if (lwm_mark_trigger)
 		return 0;
 
-	if (!(cnt & 0xf))
+	if (!(cnt & 0xf)) {
+		dropped++;
+		if (!(dropped & 0xffff))
+			fprintf(stderr,"Dropped %lu [%lu]\n", dropped, cnt);
 		return 1;
+	}
 
 	return 0;
 }
@@ -638,8 +643,10 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		struct io_md *md;
 		uint64_t addr = ring_entry(ring);
 
-		if (addr_wm_signal(addr))
+		if (addr_wm_signal(addr)) {
+			advance_ring(ring);
 			continue;
+		}
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
