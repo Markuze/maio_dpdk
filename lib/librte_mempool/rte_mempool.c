@@ -800,7 +800,7 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		return NULL;
 	}
 
-	flags |= MEMPOOL_F_NO_SPREAD|MEMPOOL_F_NO_CACHE_ALIGN;
+	flags |= MEMPOOL_F_NO_SPREAD;
 	/* "no cache align" imply "no spread" */
 	if (flags & MEMPOOL_F_NO_CACHE_ALIGN)
 		flags |= MEMPOOL_F_NO_SPREAD;
