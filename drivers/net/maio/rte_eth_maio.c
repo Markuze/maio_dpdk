@@ -585,6 +585,21 @@ static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 	return mbuf;
 }
 
+static int random_drop()
+{
+	static int cnt;
+
+	cnt++;
+
+	if (lwm_mark_trigger)
+		return 0;
+
+	if (!(cnt & 0xf))
+		return 1;
+
+	return 0;
+}
+
 static inline int addr_wm_signal(uint64_t addr)
 {
 	struct rte_mbuf *mbuf;
@@ -602,6 +617,12 @@ static inline int addr_wm_signal(uint64_t addr)
 		return 1;
 	}
 
+	if (random_drop()) {
+		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
+		/*TODO: Add rte_pktmbuf_free_bulk optimization */
+		rte_pktmbuf_free(mbuf);
+		return 1;
+	}
 	return 0;
 }
 
