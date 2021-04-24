@@ -72,7 +72,7 @@ static const struct rte_eth_link pmd_link = {
         .link_autoneg = ETH_LINK_AUTONEG
 };
 
-void trace_write(const char *fmt, ...)
+static void trace_write(const char *fmt, ...)
 {
         va_list ap;
         char buf[256];
@@ -347,6 +347,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 		}
 #endif
 		pages->bufs[i] = mbufs[i];
+		ASSERT(((unsigned long)mbufs[i] & ETH_MAIO_STRIDE_BOTTOM_MASK)==RTE_CACHE_LINE_SIZE);
 #if 0
 		if (!(i & 0x1ff)) {
 			MAIO_LOG(ERR, "mbuf %p[%lld] data %p[%lld]\n", pages->bufs[i],
@@ -369,7 +370,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 
 	pages->nr_pages = len;
 	pages->stride   = ETH_MAIO_MBUF_STRIDE;	//TODO: get it from mbuf
-	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ~ETH_MAIO_STRIDE_MASK;
+	pages->headroom = (uint64_t)mbufs[0]->buf_addr & ETH_MAIO_STRIDE_BOTTOM_MASK;
 	pages->flags    = 0xC0CE;
 	i = write(proc, pages, pages_sz);
 	fprintf(stderr, "%s: sent to %s [%lu] first addr %p of %d [%d]\n", __FUNCTION__, PAGES_0_PROC_NAME, pages_sz, pages->bufs[0], len, i);
@@ -577,7 +578,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	//((t)((char *)(m)->buf_addr + (m)->data_off + (o)))
 static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 {
-	struct rte_mbuf *mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
+	struct rte_mbuf *mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
 
 	ASSERT(addr > (uint64_t)mbuf->buf_addr);
 	mbuf->data_off = addr - (uint64_t)mbuf->buf_addr;
@@ -594,9 +595,9 @@ static inline int addr_wm_signal(uint64_t addr)
 	}
 
 	//page aligned address is a refill packet
-	if (!(addr & ETH_MAIO_STRIDE_MASK)) {
-		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_MASK) + ALLIGNED_MBUF_OFFSET);
-		/*TODO: Add rte_pktmbuf_free optimization */
+	if (!(addr & ETH_MAIO_STRIDE_BOTTOM_MASK)) {
+		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
+		/*TODO: Add rte_pktmbuf_free_bulk optimization */
 		rte_pktmbuf_free(mbuf);
 		return 1;
 	}

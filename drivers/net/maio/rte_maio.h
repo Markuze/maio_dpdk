@@ -15,10 +15,11 @@
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
-#define ALLIGNED_MBUF_OFFSET 		(sizeof(struct rte_mempool_objhdr))
+#define ALLIGNED_MBUF_OFFSET 		(RTE_CACHE_LINE_SIZE)
 #define ETH_MAIO_FRAME_SIZE		4096
 #define ETH_MAIO_MBUF_STRIDE		0x1000 	// TODO: same as frame size - need to check if redundant
-#define ETH_MAIO_STRIDE_MASK		(~(ETH_MAIO_MBUF_STRIDE -1))
+#define ETH_MAIO_STRIDE_TOP_MASK	(~(ETH_MAIO_MBUF_STRIDE -1))
+#define ETH_MAIO_STRIDE_BOTTOM_MASK	(ETH_MAIO_MBUF_STRIDE -1)
 #define ETH_MAIO_DFLT_NUM_DESCS		1024
 #define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
 #define ETH_MAIO_NUM_INIT_BUFFS		(ETH_MAIO_DFLT_NUM_DESCS << 6)	//64K
