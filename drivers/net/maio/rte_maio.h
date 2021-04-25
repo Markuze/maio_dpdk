@@ -42,6 +42,8 @@
 #define HP_MASK		(HP_SIZE-1)
 #define ALIGN_HP(x)    	(((x) + (HP_MASK)) & ~(HP_MASK))
 #define DIV_ROUND_UP_HP(n) (((n) + HP_MASK) >> HP_SHIFT)
+
+#define LWM_TRIGGER_COUNT	128	/* get 4K pages back to kernel */
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
 	uint32_t len;

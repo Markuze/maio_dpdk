@@ -595,9 +595,9 @@ static int random_drop(void)
 	if (lwm_mark_trigger)
 		return 0;
 
-	if (!(cnt & 0xf)) {
+	if (!(cnt & 0x1f)) {
 		dropped++;
-		if (!(dropped & 0xffff))
+		if (!(dropped & 0xfff))
 			fprintf(stderr,"Dropped %lu [%lu]\n", dropped, cnt);
 		return 1;
 	}
@@ -610,7 +610,8 @@ static inline int addr_wm_signal(uint64_t addr)
 	struct rte_mbuf *mbuf;
 
 	if (addr == MAIO_POISON) {
-		lwm_mark_trigger = 1;
+		//MAIO_LOG(WARN, "LWM = ON: addr = %llx\n", addr);
+		lwm_mark_trigger = LWM_TRIGGER_COUNT;
 		return 1;
 	}
 
@@ -752,8 +753,10 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		bytes += md->len;
 	}
 stats:
-	tx_queue->pkts	+= i;
-	tx_queue->bytes += bytes;
+	if (tx_queue) {
+		tx_queue->pkts	+= i;
+		tx_queue->bytes += bytes;
+	}
 
 	return i;
 }
@@ -770,12 +773,15 @@ static uint16_t eth_maio_tx(void *queue,
 
 	if (lwm_mark_trigger) {
 		struct rte_mbuf *mbufs[REFILL_NUM];
+		//MAIO_LOG(stderr,"refiling LWM on\n");
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
 			return -ENOMEM;
 		}
+		//MAIO_LOG(stderr,"Allocated REFILL_NUM sending\n");
 		rc = post_maio_ring(&matrix->tx[0], mbufs, REFILL_NUM, NULL);
-		lwm_mark_trigger = 0;
+		--lwm_mark_trigger;
+		//MAIO_LOG(stderr,"LWM off\n");
 	}
 	/* Fill Ring 0 -- Only Ring 0 is used today */
 	rc = post_maio_ring(&matrix->tx[0], bufs, nb_pkts, &stats->tx_queue[0]);
@@ -979,7 +985,8 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
 
 	trace_fd = open(trace_marker, O_WRONLY);
-	MAIO_LOG(ERR, "tarfe_fd %d\n", trace_fd);
+	MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
+	trace_write("Hello :)!\n");
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
