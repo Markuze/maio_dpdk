@@ -127,7 +127,7 @@ struct tx_user_ring {
 	unsigned long consumer;
 	unsigned long long *ring;
 	int fd;
-	int idx;
+	int dev_idx;
 
 };// __rte_cache_aligned;
 

@@ -441,7 +441,7 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 	}
 
 	internals->matrix->tx[tx_queue_id].fd = tx_proc;
-	internals->matrix->tx[tx_queue_id].idx = internals->if_index;
+	internals->matrix->tx[tx_queue_id].dev_idx = internals->if_index;
 	MAIO_LOG(ERR, "%s %d\n","HERE" ,__LINE__);
 
 	return 0;
@@ -787,27 +787,33 @@ static uint16_t eth_maio_tx(void *queue,
 	struct user_matrix *matrix = queue;
 	struct pmd_stats *stats = &matrix->stats;
 	char write_buffer[WRITE_BUFF_LEN] = {0};
-	int len, rc = nb_pkts;
+	int len, i, rc = nb_pkts;
 
-	if (lwm_mark_trigger) {
-		struct rte_mbuf *mbufs[REFILL_NUM];
-		//MAIO_LOG(stderr,"refiling LWM on\n");
-		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
-			MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
-			return -ENOMEM;
+	for (i = 0; i < 8; i++) {
+		if (lwm_mark_trigger) {
+			struct rte_mbuf *mbufs[REFILL_NUM];
+
+			if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
+				MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
+				return -ENOMEM;
+			}
+
+			rc = post_maio_ring(&matrix->tx[i], mbufs, REFILL_NUM, NULL);
+			--lwm_mark_trigger;
 		}
-		//MAIO_LOG(stderr,"Allocated REFILL_NUM sending\n");
-		rc = post_maio_ring(&matrix->tx[0], mbufs, REFILL_NUM, NULL);
-		--lwm_mark_trigger;
-		//MAIO_LOG(stderr,"LWM off\n");
+		rc = post_maio_ring(&matrix->tx[i], bufs, nb_pkts, &stats->tx_queue[i]);
+		/* Ring DoorBell -- SysCall */
+		/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
+		len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, i);
+		len = write(matrix->tx[0].fd, write_buffer, len);
+		printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
+
+		nb_pkts -= rc;
+		if (!nb_pkts)
+			break;
+
+		bufs = &bufs[rc];
 	}
-	/* Fill Ring 0 -- Only Ring 0 is used today */
-	rc = post_maio_ring(&matrix->tx[0], bufs, nb_pkts, &stats->tx_queue[0]);
-	/* Ring DoorBell -- SysCall */
-	/*,rte_lcore_id()*/
-	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d\n", matrix->tx[0].idx);
-	len = write(matrix->tx[0].fd, write_buffer, len);
-	//printf("Posted %s %d/%d packets on lcore %d [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, rte_lcore_id(), len);
 	return rc;
 }
 
