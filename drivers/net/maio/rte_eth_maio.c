@@ -585,6 +585,20 @@ static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 	return mbuf;
 }
 
+static int random_refill(void)
+{
+	static unsigned long	cnt;
+	cnt++;
+
+	if (lwm_mark_trigger)
+		return 0;
+	if (!(cnt & 0xffff)) {
+		lwm_mark_trigger = 32;
+	}
+
+	return 0;
+}
+
 static int random_drop(void)
 {
 	static unsigned long	cnt;
@@ -623,12 +637,16 @@ static inline int addr_wm_signal(uint64_t addr)
 		return 1;
 	}
 
+	random_refill();
+# if 0
+	/* usefull for testing LWM */
 	if (random_drop()) {
 		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
 		/*TODO: Add rte_pktmbuf_free_bulk optimization */
 		rte_pktmbuf_free(mbuf);
 		return 1;
 	}
+#endif
 	return 0;
 }
 
