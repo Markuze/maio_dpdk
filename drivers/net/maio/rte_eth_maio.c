@@ -637,8 +637,8 @@ static inline int addr_wm_signal(uint64_t addr)
 		return 1;
 	}
 
-	random_refill();
 # if 0
+	random_refill();
 	/* usefull for testing LWM */
 	if (random_drop()) {
 		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
@@ -744,15 +744,14 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
 {
-	int i = nb_pkts;
 	uint32_t bytes = 0 ;
+	int i = 0;
 
 	while (nb_pkts--)  {
 		struct rte_mbuf *mbuf = *bufs;
 		struct io_md *md;
 
 		if (ring_entry(ring)) {
-			i = i - nb_pkts;
 			goto stats;
 		}
 
@@ -768,6 +767,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		post_ring_entry(ring, ++md);
 		bufs++;
 
+		i++;
 		bytes += md->len;
 	}
 stats:
@@ -789,7 +789,7 @@ static uint16_t eth_maio_tx(void *queue,
 	char write_buffer[WRITE_BUFF_LEN] = {0};
 	int len, i, rc = nb_pkts;
 
-	for (i = 0; i < 8; i++) {
+	for (i = 0; i < 1; i++) {
 		if (lwm_mark_trigger) {
 			struct rte_mbuf *mbufs[REFILL_NUM];
 
@@ -806,7 +806,7 @@ static uint16_t eth_maio_tx(void *queue,
 		/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
 		len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, i);
 		len = write(matrix->tx[0].fd, write_buffer, len);
-		printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
+		//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
 
 		nb_pkts -= rc;
 		if (!nb_pkts)
