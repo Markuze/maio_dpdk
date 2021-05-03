@@ -430,6 +430,7 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 				const struct rte_eth_txconf *tx_conf __rte_unused)
 {
 	static int tx_proc;
+	static int napi_proc;
 	struct pmd_internals *internals  = dev->data->dev_private;
 	dev->data->tx_queues[tx_queue_id] = internals->matrix;
 
@@ -440,8 +441,18 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 		}
 	}
 
+	if (!tx_proc) {
+		if ((tx_proc = open(NAPI_PROC_NAME, O_RDWR)) < 0) {
+			MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
+			return -ENODEV;
+		}
+	}
+
 	internals->matrix->tx[tx_queue_id].fd = tx_proc;
 	internals->matrix->tx[tx_queue_id].dev_idx = internals->if_index;
+
+	internals->matrix->tx[NAPI_THREAD_IDX].fd = napi_proc;
+	internals->matrix->tx[NAPI_THREAD_IDX].dev_idx = internals->if_index;
 	MAIO_LOG(ERR, "%s %d\n","HERE" ,__LINE__);
 
 	return 0;
@@ -585,6 +596,7 @@ static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 	return mbuf;
 }
 
+#if 0
 static int random_refill(void)
 {
 	static unsigned long	cnt;
@@ -618,6 +630,7 @@ static int random_drop(void)
 
 	return 0;
 }
+#endif
 
 static inline int addr_wm_signal(uint64_t addr)
 {
@@ -780,6 +793,36 @@ stats:
 }
 
 #define REFILL_NUM	32
+static uint16_t eth_maio_napi(void *queue,
+				struct rte_mbuf **bufs,
+				uint16_t nb_pkts)
+{
+	struct user_matrix *matrix = queue;
+	struct pmd_stats *stats = &matrix->stats;
+	char write_buffer[WRITE_BUFF_LEN] = {0};
+	int len, rc;
+
+	if (lwm_mark_trigger) {
+		struct rte_mbuf *mbufs[REFILL_NUM];
+
+		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
+			MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
+			return -ENOMEM;
+		}
+
+		rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], mbufs, REFILL_NUM, NULL);
+		--lwm_mark_trigger;
+	}
+	rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
+	/* Ring DoorBell -- SysCall */
+	/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
+	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, NAPI_THREAD_IDX);
+	len = write(matrix->tx[NAPI_THREAD_IDX].fd, write_buffer, len);
+	//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
+
+	return rc;
+}
+
 static uint16_t eth_maio_tx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)

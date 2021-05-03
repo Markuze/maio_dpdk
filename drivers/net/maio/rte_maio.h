@@ -8,6 +8,7 @@
 #define PAGES_0_PROC_NAME		"/proc/maio/pages_0"
 #define MTRX_PROC_NAME			"/proc/maio/mtrx"
 #define TX_PROC_NAME			"/proc/maio/tx"
+#define NAPI_PROC_NAME			"/proc/maio/napi"
 #define MAP_PROC_NAME			"/proc/maio/map"
 #define ENABLE_PROC_NAME		"/proc/maio/enable"
 #define STOP_PROC_NAME                  "/proc/maio/stop"
@@ -29,6 +30,7 @@
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
 #define NUM_MAX_RINGS	16
+#define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
 #define NUM_RING_TYPES	2
 #define RE_SZ	(sizeof(void *))
 
