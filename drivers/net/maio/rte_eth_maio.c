@@ -112,15 +112,21 @@ static inline int maio_set_state(const char *state)
 /* This function gets called when the current port gets stopped. */
 static void eth_dev_stop(struct rte_eth_dev *dev)
 {
-	MAIO_LOG(ERR, "%d\n", __LINE__);
+	char write_buffer[64] = {0};
+	struct pmd_internals *internals  = dev->data->dev_private;
+
+	snprintf(write_buffer, 64, "%d %d\n", 0, internals->if_index);
 	maio_set_state("0");
         dev->data->dev_link.link_status = ETH_LINK_DOWN;
 }
 
 static int eth_dev_start(struct rte_eth_dev *dev)
 {
-	MAIO_LOG(ERR, "%d\n", __LINE__);
-	maio_set_state("1");
+	char write_buffer[64] = {0};
+	struct pmd_internals *internals  = dev->data->dev_private;
+
+	snprintf(write_buffer, 64, "%d %d\n", 1, internals->if_index);
+	maio_set_state(write_buffer);
 	dev->data->dev_link.link_status = ETH_LINK_UP;
 
 	return 0;
@@ -441,8 +447,8 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 		}
 	}
 
-	if (!tx_proc) {
-		if ((tx_proc = open(NAPI_PROC_NAME, O_RDWR)) < 0) {
+	if (!napi_proc) {
+		if ((napi_proc = open(NAPI_PROC_NAME, O_RDWR)) < 0) {
 			MAIO_LOG(ERR, "Failed to init internals %d\n", __LINE__);
 			return -ENODEV;
 		}
@@ -815,10 +821,8 @@ static uint16_t eth_maio_napi(void *queue,
 	}
 	rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
 	/* Ring DoorBell -- SysCall */
-	/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
 	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, NAPI_THREAD_IDX);
 	len = write(matrix->tx[NAPI_THREAD_IDX].fd, write_buffer, len);
-	//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
 
 	return rc;
 }
