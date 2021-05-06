@@ -94,13 +94,18 @@ struct in_params {
 	int q_cnt;
 };
 
+typedef uint16_t (*eth_napi_tx_burst_t)(void *rxq,
+                                   struct rte_mbuf **rx_pkts,
+                                   uint16_t nb_pkts);
+
 struct pmd_internals {
+	eth_napi_tx_burst_t napi_burst_tx;
+	struct user_matrix *matrix;
 	struct rte_mempool *mb_pool;
 	int if_index;
 	int q_cnt;
 	char if_name[IFNAMSIZ];
 	struct rte_ether_addr eth_addr;
-	struct user_matrix *matrix;
 };
 
 

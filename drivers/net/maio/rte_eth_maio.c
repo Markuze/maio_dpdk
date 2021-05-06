@@ -938,7 +938,8 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	len = write(mtrx_proc, write_buffer, len);
 
 	MAIO_LOG(ERR, ">>> Sent %s\n", write_buffer);
-	internals->matrix = matrix;
+	internals->napi_burst_tx	= eth_maio_napi;
+	internals->matrix		= matrix;
 #if 0
 	//rte_malloc_dump_stats(stdout, NULL);
 	rte_memzone_dump(stdout);
