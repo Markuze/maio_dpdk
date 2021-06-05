@@ -581,8 +581,8 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 			eth->s_addr.addr_bytes[4],
 			eth->s_addr.addr_bytes[5]);
 	cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s:SIP: %0x DIP: %0x\n",
-			str,
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s:%d:SIP: %0x DIP: %0x\n",
+			str, ip->version_ihl,
 			ip->src_addr, ip->dst_addr);
 	printf("%s\n", write_buffer);
 }
@@ -696,6 +696,13 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		rte_pktmbuf_pkt_len(mbuf) = md->len;
 		rte_pktmbuf_data_len(mbuf) = md->len;
 
+		/* check for vlan info */
+		if (md->flags & MAIO_STATUS_VLAN_VALID) {
+			mbuf->vlan_tci 	= md->vlan_tci;
+			mbuf->ol_flags |= (PKT_RX_VLAN | PKT_RX_VLAN_STRIPPED);
+			show_io(mbuf, "RX");
+		}
+
 		bufs[i++] = mbuf;
 		byte_cnt += md->len;
 
@@ -779,9 +786,17 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		//md = rte_pktmbuf_mtod(mbuf, struct io_md *);
 		md = get_mbuf(mbuf);
 		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+
 		md--;
-		md->poison = MAIO_POISON;
-		md->len = rte_pktmbuf_data_len(mbuf);
+		md->flags	= 0;
+		md->poison	= MAIO_POISON;
+		md->len		= rte_pktmbuf_data_len(mbuf);
+
+		/* insert vlan info if necessary */
+		if (mbuf->ol_flags & PKT_TX_VLAN_PKT) {
+			md->flags	= MAIO_STATUS_VLAN_VALID;
+			md->vlan_tci	= mbuf->vlan_tci;
+		}
 
 		post_ring_entry(ring, ++md);
 		bufs++;

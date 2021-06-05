@@ -26,6 +26,8 @@
 #define ETH_MAIO_NUM_INIT_BUFFS		(ETH_MAIO_DFLT_NUM_DESCS * 12)	//12K
 
 
+#define MAIO_STATUS_VLAN_VALID	0x1
+
 //#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
@@ -49,6 +51,8 @@
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
 	uint32_t len;
+	uint16_t vlan_tci;
+	uint16_t flags;
 	uint32_t poison;
 };
 
