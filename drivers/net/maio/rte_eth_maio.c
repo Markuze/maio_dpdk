@@ -16,6 +16,8 @@
 #include <linux/if_ether.h>
 #include <linux/if.h>
 
+#include <arpa/inet.h>
+
 #include <rte_ethdev.h>
 #include <rte_ethdev_driver.h>
 #include <rte_ethdev_vdev.h>
@@ -553,7 +555,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 {
 	struct rte_ether_hdr *eth;
 	struct rte_ipv4_hdr *ip;
-	char write_buffer[WRITE_BUFF_LEN];
+	char write_buffer[WRITE_BUFF_LEN], src_ip[INET_ADDRSTRLEN], dst_ip[INET_ADDRSTRLEN];
 	int len, cur = 0;
 
 	eth 	= rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
@@ -561,7 +563,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 
 	//len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s\n", str);
 	//cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s:IN type: 0x%x: %p \n:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s\t:IN type: 0x%x: %p \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			str,
 			rte_cpu_to_be_16(eth->ether_type),
 			eth,
@@ -572,7 +574,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 			eth->d_addr.addr_bytes[4],
 			eth->d_addr.addr_bytes[5]);
 	cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s:S_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s\t:S_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			str,
 			eth->s_addr.addr_bytes[0],
 			eth->s_addr.addr_bytes[1],
@@ -581,9 +583,14 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 			eth->s_addr.addr_bytes[4],
 			eth->s_addr.addr_bytes[5]);
 	cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s:%d:SIP: %0x DIP: %0x\n",
-			str, ip->version_ihl,
-			ip->src_addr, ip->dst_addr);
+
+	inet_ntop(AF_INET, &ip->src_addr, src_ip, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, &ip->dst_addr, dst_ip, INET_ADDRSTRLEN);
+
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s:\tv%d next %d:SIP: %s DIP: %s\n",
+			str, (ip->version_ihl >> 4) & 0xF, ip->next_proto_id,
+			src_ip, dst_ip);
+
 	printf("%s\n", write_buffer);
 }
 
