@@ -16,9 +16,11 @@
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 
+#define PAGE_SIZE			0x1000
+#define PAGE_MASK			(~(PAGE_SIZE -1))
 #define ALLIGNED_MBUF_OFFSET 		(RTE_CACHE_LINE_SIZE)
-#define ETH_MAIO_FRAME_SIZE		4096
-#define ETH_MAIO_MBUF_STRIDE		0x1000 	// TODO: same as frame size - need to check if redundant
+#define ETH_MAIO_FRAME_SIZE		PAGE_SIZE
+#define ETH_MAIO_MBUF_STRIDE		PAGE_SIZE
 #define ETH_MAIO_STRIDE_TOP_MASK	(~(ETH_MAIO_MBUF_STRIDE -1))
 #define ETH_MAIO_STRIDE_BOTTOM_MASK	(ETH_MAIO_MBUF_STRIDE -1)
 #define ETH_MAIO_DFLT_NUM_DESCS		1024
@@ -31,6 +33,7 @@
 //#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
+#define VC_MD_OFFSET	(0x1000 - 512 - 192)
 #define NUM_MAX_RINGS	16
 #define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
 #define NUM_RING_TYPES	2
@@ -50,10 +53,11 @@
 #define LWM_TRIGGER_COUNT	128	/* get 4K pages back to kernel */
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
+	uint64_t state;
 	uint32_t len;
+	uint32_t poison;
 	uint16_t vlan_tci;
 	uint16_t flags;
-	uint32_t poison;
 };
 
 struct meta_pages_0 {

@@ -563,10 +563,10 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 
 	//len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s\n", str);
 	//cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s\t:IN type: 0x%x: %p \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s\t:IN type: 0x%x: len %d \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			str,
 			rte_cpu_to_be_16(eth->ether_type),
-			eth,
+			rte_pktmbuf_pkt_len(mbuf),
 			eth->d_addr.addr_bytes[0],
 			eth->d_addr.addr_bytes[1],
 			eth->d_addr.addr_bytes[2],
@@ -594,7 +594,8 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
-#define SHOW_IO(...)
+//#define SHOW_IO(...)
+#define SHOW_IO(a,b)	show_io(a,b);
 #define advance_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 #define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = (unsigned long)p
 #define ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
@@ -676,6 +677,15 @@ static inline int addr_wm_signal(uint64_t addr)
 	return 0;
 }
 
+static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
+{
+	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
+	md = md & PAGE_MASK;
+	md += VC_MD_OFFSET;
+
+	return (struct io_md *)md;
+}
+
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 						struct rte_mbuf **bufs,
 						uint16_t *cnt, uint32_t *bytes, uint16_t nb_pkts)
@@ -695,8 +705,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
-		md 	= rte_pktmbuf_mtod(mbuf, struct io_md *);
-		md--;
+		md 	= mbuf2io_md(mbuf);
 		advance_ring(ring);
 		ASSERT(mbuf->pool == maio_mb_pool);
 		ASSERT(md->poison == MAIO_POISON);
@@ -749,9 +758,8 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-static inline struct io_md *get_mbuf(struct rte_mbuf *mbuf)
+static inline struct rte_mbuf *get_mbuf(struct rte_mbuf *mbuf)
 {
-	struct io_md *md = rte_pktmbuf_mtod(mbuf, struct io_md *);
 #if 0
 	static int i;
 	if (i) {
@@ -761,16 +769,15 @@ static inline struct io_md *get_mbuf(struct rte_mbuf *mbuf)
 		if (!new)
 			return md;
 
-		new_md = rte_pktmbuf_mtod(new, struct io_md *);
+		new_md = mbuf2io_md(new);
 
-		//printf("Copying mbuf %p\n", mbuf);
-		memcpy(new_md, md, rte_pktmbuf_data_len(mbuf));
-		md = new_md;
+		memcpy(new, rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *), rte_pktmbuf_data_len(mbuf));
+		memcpy(new_md, mbuf2io_md(new), sizeof(struct io_md));
 	}
 
 	i ^= 1;
 #endif
-	return md;
+	return mbuf;
 }
 
 static inline int post_maio_ring(struct tx_user_ring *ring,
@@ -790,11 +797,8 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
-		//md = rte_pktmbuf_mtod(mbuf, struct io_md *);
-		md = get_mbuf(mbuf);
-		//printf("mbuf %p: data %p offset %d len %d\n", md, mbuf->buf_addr, mbuf->data_off, rte_pktmbuf_data_len(mbuf));
+		md 	= mbuf2io_md(mbuf);
 
-		md--;
 		md->flags	= 0;
 		md->poison	= MAIO_POISON;
 		md->len		= rte_pktmbuf_data_len(mbuf);
@@ -805,7 +809,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
 
-		post_ring_entry(ring, ++md);
+		post_ring_entry(ring, rte_pktmbuf_mtod(mbuf, void *));
 		bufs++;
 
 		i++;
