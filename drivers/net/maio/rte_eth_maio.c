@@ -758,33 +758,84 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-static inline struct rte_mbuf *get_mbuf(struct rte_mbuf *mbuf)
+static rte_mbuf *tx_comp_head;
+static rte_mbuf *tx_comp_tail;
+
+static inline bool maio_tx_complete(struct rte_mbuf *mbuf)
 {
-#if 0
-	static int i;
-	if (i) {
-		struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
-		struct io_md *new_md;
+	struct io_md *md;
 
-		if (!new)
-			return md;
+	if (!mbuf)
+		return false;
 
-		new_md = mbuf2io_md(new);
-
-		memcpy(new, rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *), rte_pktmbuf_data_len(mbuf));
-		memcpy(new_md, mbuf2io_md(new), sizeof(struct io_md));
-	}
-
-	i ^= 1;
-#endif
-	return mbuf;
+	md = mbuf2io_md(mbuf);
+	return (md->flags & MAIO_STATE_TX_COMPLETE) ? true : false;
 }
 
+#define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
+/* Warning this is not thread safe. Use TLS instead of static */
+static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
+{
+	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
+	static nr_free;
+
+	// If rc == 1 queue for freeing, else dec ref.
+	if (likely(rte_pktmbuf_prefree_seg(mbuf))) {
+		free[nr_free++] = mbuf;
+	}
+
+	if (unlikely(nr_free == RTE_MAIO_TX_MAX_FREE_BUF_SZ)) {
+		rte_mempool_put_bulk(maio_mb_pool, (void **)free, nr_free);
+		nr_free = 0;
+	}
+}
+
+/* Kernel should check for LOCKED flag on free and set status instead of reusing */
+/* TODO: consider using different thread for refill tasks (just change the TX ring from 0/NAPI)*/
+static inline void *enque_mbuf(struct rte_mbuf *mbuf)
+{
+	if (unlikely(!tx_comp_head)) {
+		tx_comp_head = mbuf;
+		tx_comp_tail = mbuf;
+		return;
+	}
+
+	tx_comp_tail->next = mbuf;
+	tx_comp_tail = mbuf;
+
+	/* drain complete TX buffers */
+	while (maio_tx_complete(tx_comp_head)) {
+		struct rte_mbuf *m = tx_comp_head;
+		tx_comp_head = tx_comp_head->next;
+		maio_put_mbuf(m);
+	}
+}
+
+static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
+{
+	struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
+	//struct io_md *new_md;
+
+	if (!new)
+		return NULL;
+
+	//new_md = mbuf2io_md(new);
+
+	memcpy(new, rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *), rte_pktmbuf_data_len(mbuf));
+	//memcpy(new_md, mbuf2io_md(new), sizeof(struct io_md));
+
+	maio_put_mbuf(mbuf);
+
+	return new;
+}
+
+#define CPY_TX
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
 {
-	uint32_t bytes = 0 ;
+	uint32_t bytes = 0;
+	uint16_t flags = 0;
 	int i = 0;
 
 	while (nb_pkts--)  {
@@ -797,15 +848,28 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 
 		SHOW_IO(mbuf, "TX");
 		ASSERT(mbuf->pool == maio_mb_pool);
+
+		// This is needed we dont want to handle refill buffers.
+		if (likely(tx_queue)) {
+#ifdef CPY_TX
+			mbuf = get_cpy_mbuf(mbuf);
+#else
+			if (rte_mbuf_refcnt_read(mbuf) != 1) {
+				//The kernel will not reuse page
+				flags |= MAIO_STATUS_USER_LOCKED;
+				enque_mbuf(mbuf);
+			}
+#endif
+		}
 		md 	= mbuf2io_md(mbuf);
 
-		md->flags	= 0;
+		md->flags	= flags;
 		md->poison	= MAIO_POISON;
 		md->len		= rte_pktmbuf_data_len(mbuf);
 
 		/* insert vlan info if necessary */
 		if (mbuf->ol_flags & PKT_TX_VLAN_PKT) {
-			md->flags	= MAIO_STATUS_VLAN_VALID;
+			md->flags	|= MAIO_STATUS_VLAN_VALID;
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
 
