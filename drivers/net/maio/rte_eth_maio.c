@@ -758,18 +758,18 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-static rte_mbuf *tx_comp_head;
-static rte_mbuf *tx_comp_tail;
+static struct rte_mbuf *tx_comp_head;
+static struct rte_mbuf *tx_comp_tail;
 
-static inline bool maio_tx_complete(struct rte_mbuf *mbuf)
+static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
 
 	if (!mbuf)
-		return false;
+		return 0;
 
 	md = mbuf2io_md(mbuf);
-	return (md->flags & MAIO_STATE_TX_COMPLETE) ? true : false;
+	return (md->flags & MAIO_STATE_TX_COMPLETE) ? 1 : 0;
 }
 
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
@@ -777,7 +777,7 @@ static inline bool maio_tx_complete(struct rte_mbuf *mbuf)
 static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 {
 	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
-	static nr_free;
+	static int nr_free;
 
 	// If rc == 1 queue for freeing, else dec ref.
 	if (likely(rte_pktmbuf_prefree_seg(mbuf))) {
@@ -792,7 +792,7 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 
 /* Kernel should check for LOCKED flag on free and set status instead of reusing */
 /* TODO: consider using different thread for refill tasks (just change the TX ring from 0/NAPI)*/
-static inline void *enque_mbuf(struct rte_mbuf *mbuf)
+static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	if (unlikely(!tx_comp_head)) {
 		tx_comp_head = mbuf;
@@ -809,6 +809,7 @@ static inline void *enque_mbuf(struct rte_mbuf *mbuf)
 		tx_comp_head = tx_comp_head->next;
 		maio_put_mbuf(m);
 	}
+	return;
 }
 
 static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
