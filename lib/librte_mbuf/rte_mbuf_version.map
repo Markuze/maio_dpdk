@@ -27,6 +27,7 @@ DPDK_20.0 {
 	rte_pktmbuf_pool_create;
 	rte_pktmbuf_pool_create_by_ops;
 	rte_pktmbuf_pool_init;
+	rte_pktmbuf_copy;
 
 	local: *;
 };
@@ -42,7 +43,6 @@ EXPERIMENTAL {
 	rte_mbuf_dynflag_register;
 	rte_mbuf_dynflag_register_bitnum;
 	rte_mbuf_dyn_dump;
-	rte_pktmbuf_copy;
 	rte_pktmbuf_free_bulk;
 
 };

@@ -814,17 +814,10 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 
 static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 {
-	struct rte_mbuf *new = rte_pktmbuf_alloc(maio_mb_pool);
-	//struct io_md *new_md;
+	struct rte_mbuf *new = rte_pktmbuf_copy(mbuf, maio_mb_pool, 0, UINT32_MAX);
 
 	if (!new)
 		return NULL;
-
-	//new_md = mbuf2io_md(new);
-
-	memcpy(new, rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *), rte_pktmbuf_data_len(mbuf));
-	//memcpy(new_md, mbuf2io_md(new), sizeof(struct io_md));
-
 	maio_put_mbuf(mbuf);
 
 	return new;
@@ -847,13 +840,14 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			goto stats;
 		}
 
-		SHOW_IO(mbuf, "TX");
+		SHOW_IO(mbuf, "cpyTX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 
-		// This is needed we dont want to handle refill buffers.
 		if (likely(tx_queue)) {
 #ifdef CPY_TX
 			mbuf = get_cpy_mbuf(mbuf);
+			if (unlikely(!mbuf))
+				goto stats;
 #else
 			if (rte_mbuf_refcnt_read(mbuf) != 1) {
 				//The kernel will not reuse page
