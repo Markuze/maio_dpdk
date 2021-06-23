@@ -1067,7 +1067,7 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
         eth_dev->data->mac_addrs = &internals->eth_addr;
         eth_dev->dev_ops = &ops;
         eth_dev->rx_pkt_burst = eth_maio_rx;
-        eth_dev->tx_pkt_burst = eth_maio_tx;
+        eth_dev->tx_pkt_burst = eth_maio_napi;
         /* Let rte_eth_dev_close() release the port resources. */
         eth_dev->data->dev_flags |= RTE_ETH_DEV_CLOSE_REMOVE;
 
