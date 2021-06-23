@@ -34,7 +34,7 @@
 //#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
-#define VC_MD_OFFSET	(0x1000 - 512 - 192)
+#define VC_MD_OFFSET	(PAGE_SIZE -512)
 #define NUM_MAX_RINGS	16
 #define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
 #define NUM_RING_TYPES	2
