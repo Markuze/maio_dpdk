@@ -806,12 +806,7 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	/* drain complete TX buffers */
 	while (maio_tx_complete(tx_comp_head)) {
 		struct rte_mbuf *m = tx_comp_head;
-		struct io_md *md = mbuf2io_md(m);
-
 		tx_comp_head = tx_comp_head->next;
-
-		/* Remove USER LOCK */
-		md->flags &= ~(MAIO_STATE_TX_COMPLETE|MAIO_STATUS_USER_LOCKED);
 		maio_put_mbuf(m);
 	}
 	return;
@@ -848,29 +843,22 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		SHOW_IO(mbuf, "cpyTX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 
-		md 	= mbuf2io_md(mbuf);
 		if (likely(tx_queue)) {
 #ifdef CPY_TX
 			mbuf = get_cpy_mbuf(mbuf);
 			if (unlikely(!mbuf))
 				goto stats;
-			md 	= mbuf2io_md(mbuf);
 #else
-
-			if (md->flags & MAIO_STATUS_USER_LOCKED) {
-				mbuf = get_cpy_mbuf(mbuf);
-				if (unlikely(!mbuf))
-					goto stats;
-				md 	= mbuf2io_md(mbuf);
-			} else if (rte_mbuf_refcnt_read(mbuf) != 1) {
+			if (rte_mbuf_refcnt_read(mbuf) != 1) {
 				//The kernel will not reuse page
 				flags |= MAIO_STATUS_USER_LOCKED;
 				enque_mbuf(mbuf);
 			}
 #endif
 		}
+		md 	= mbuf2io_md(mbuf);
 
-		md->flags	|= flags;
+		md->flags	= flags;
 		md->poison	= MAIO_POISON;
 		md->len		= rte_pktmbuf_data_len(mbuf);
 
