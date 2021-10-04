@@ -596,11 +596,30 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 
 #define SHOW_IO(...)
 //#define SHOW_IO(a,b)	show_io(a,b);
-#define advance_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
-#define post_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = (unsigned long)p
-#define ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
 
-	//((t)((char *)(m)->buf_addr + (m)->data_off + (o)))
+#define is_rx_refill_page(p)			(((unsigned long)p) & 0x1)
+#define post_rx_ring_entry(r, p)		(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK] = ((unsigned long)p | 0x1)
+#define rx_ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
+#define tx_ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
+#define post_tx_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = ((unsigned long)p | 0x1)
+#define advance_rx_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
+
+#define REFILL_NUM	32
+static inline void post_refill_rx_page(struct user_ring *ring)
+{
+	static struct rte_mbuf *mbufs[REFILL_NUM];
+	static int idx;
+
+	if (! idx) {
+		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
+			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
+			return;
+		}
+	}
+	post_rx_ring_entry(ring, mbufs[idx]);
+	idx = (idx & (REFILL_NUM -1));
+}
+
 static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
 {
 	struct rte_mbuf *mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
@@ -677,6 +696,8 @@ static inline int addr_wm_signal(uint64_t addr)
 	return 0;
 }
 
+#define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
+
 static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 {
 	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
@@ -692,21 +713,26 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 {
 	int i = 0;
 	uint32_t byte_cnt = 0;
+	uint64_t addr;
 
-	while (ring_entry(ring))  {
+	while ((addr = rx_ring_entry(ring)))  {
 		struct rte_mbuf *mbuf;
 		struct io_md *md;
-		uint64_t addr = ring_entry(ring);
+
+		//Check if the page is an RX refill page
+		if (is_rx_refill_page(addr))
+			break;
 
 		if (addr_wm_signal(addr)) {
-			advance_ring(ring);
+			advance_rx_ring(ring);
 			continue;
 		}
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= mbuf2io_md(mbuf);
-		advance_ring(ring);
+		post_refill_rx_page(ring);
+		advance_rx_ring(ring);
 		ASSERT(mbuf->pool == maio_mb_pool);
 		ASSERT(md->poison == MAIO_POISON);
 		rte_pktmbuf_pkt_len(mbuf) = md->len;
@@ -758,21 +784,21 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-static struct rte_mbuf *tx_comp_head;
-static struct rte_mbuf *tx_comp_tail;
+#define COMP_RING_LEN	1024
+#define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
+
+static struct rte_mbuf *comp_ring[COMP_RING_LEN];
+static unsigned int comp_ring_idx;
+static unsigned int comp_ring_tail;
 
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
 
-	if (!mbuf)
-		return 0;
-
 	md = mbuf2io_md(mbuf);
-	return (md->flags & MAIO_STATE_TX_COMPLETE) ? 1 : 0;
+	return !md->in_transit;
 }
 
-#define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 /* Warning this is not thread safe. Use TLS instead of static */
 static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 {
@@ -780,7 +806,7 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	static int nr_free;
 
 	// If rc == 1 queue for freeing, else dec ref.
-	if (likely(rte_pktmbuf_prefree_seg(mbuf))) {
+	if ((rte_pktmbuf_prefree_seg(mbuf))) {
 		free[nr_free++] = mbuf;
 	}
 
@@ -790,6 +816,24 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	}
 }
 
+
+static inline void enque_mbuf(struct rte_mbuf *mbuf)
+{
+	while (comp_ring[comp_ring_tail]) {
+		MAIO_LOG(ERR, "basically impossible... just poll here...");
+	}
+	comp_ring[comp_ring_tail++] = mbuf;
+
+	/* drain complete TX buffers */
+	while (maio_tx_complete(comp_ring[comp_ring_idx])) {
+		++comp_ring_idx;
+		maio_put_mbuf(mbuf);
+	}
+
+	return;
+}
+
+#if 0
 /* Kernel should check for LOCKED flag on free and set status instead of reusing */
 /* TODO: consider using different thread for refill tasks (just change the TX ring from 0/NAPI)*/
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
@@ -824,6 +868,8 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 }
 
 #define CPY_TX
+#endif
+
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
@@ -835,14 +881,31 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 	while (nb_pkts--)  {
 		struct rte_mbuf *mbuf = *bufs;
 		struct io_md *md;
+		unsigned long long comp_addr = tx_ring_entry(ring);
 
-		if (ring_entry(ring)) {
+
+		if (comp_addr & 0x1) {
+			//This is a kernel owned buffer, try again later.
 			goto stats;
+		} else {
+			if (comp_addr) {
+				struct rte_mbuf *comp_mbuf = void2mbuf(comp_addr);
+				struct io_md *comp_md 	= mbuf2io_md(comp_mbuf);
+
+				++comp_md->tx_compl;
+
+				if (comp_md->tx_cnt == comp_md->tx_compl) {
+					enque_mbuf(comp_mbuf);
+				} else {
+					rte_pktmbuf_free_seg(comp_mbuf);
+				}
+			}
 		}
 
 		SHOW_IO(mbuf, "cpyTX");
 		ASSERT(mbuf->pool == maio_mb_pool);
 
+#if 0
 		if (likely(tx_queue)) {
 #ifdef CPY_TX
 			mbuf = get_cpy_mbuf(mbuf);
@@ -852,15 +915,16 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			if (rte_mbuf_refcnt_read(mbuf) != 1) {
 				//The kernel will not reuse page
 				flags |= MAIO_STATUS_USER_LOCKED;
-				enque_mbuf(mbuf);
 			}
 #endif
 		}
+#endif
 		md 	= mbuf2io_md(mbuf);
 
 		md->flags	= flags;
 		md->poison	= MAIO_POISON;
 		md->len		= rte_pktmbuf_data_len(mbuf);
+		++md->tx_cnt;
 
 		/* insert vlan info if necessary */
 		if (mbuf->ol_flags & PKT_TX_VLAN_PKT) {
@@ -868,7 +932,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
 
-		post_ring_entry(ring, rte_pktmbuf_mtod(mbuf, void *));
+		post_tx_ring_entry(ring, rte_pktmbuf_mtod(mbuf, void *));
 		bufs++;
 
 		i++;
@@ -883,7 +947,6 @@ stats:
 	return i;
 }
 
-#define REFILL_NUM	32
 static uint16_t eth_maio_napi(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)

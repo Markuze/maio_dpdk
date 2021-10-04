@@ -34,7 +34,7 @@
 //#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
-#define VC_MD_OFFSET	(PAGE_SIZE -64)
+#define VC_MD_OFFSET	(PAGE_SIZE -128)
 #define NUM_MAX_RINGS	16
 #define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
 #define NUM_RING_TYPES	2
@@ -54,11 +54,19 @@
 #define LWM_TRIGGER_COUNT	128	/* get 4K pages back to kernel */
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
 struct io_md {
+	/* Kernel Debug */
 	uint64_t state;
+
+	/* I/O params */
 	uint32_t len;
 	uint32_t poison;
 	uint16_t vlan_tci;
 	uint16_t flags;
+
+	/* DPDK Retransmit support */
+	uint16_t tx_cnt;
+	uint16_t tx_compl;
+	uint16_t in_transit;
 };
 
 struct meta_pages_0 {
