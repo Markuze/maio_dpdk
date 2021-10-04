@@ -820,13 +820,13 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	while (comp_ring[comp_ring_tail]) {
-		MAIO_LOG(ERR, "basically impossible... just poll here...");
+		MAIO_LOG(ERR, "basically impossible... just poll here...\n");
 	}
 	comp_ring[comp_ring_tail++] = mbuf;
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring[comp_ring_idx])) {
-		++comp_ring_idx;
+		comp_ring[comp_ring_idx++] = 0;
 		maio_put_mbuf(mbuf);
 	}
 
