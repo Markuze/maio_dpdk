@@ -609,10 +609,12 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 {
 	static struct rte_mbuf *mbufs[REFILL_NUM];
 	static int idx;
+	static int verbose;
 
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
-			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
+			if (!(verbose & 0x3ff))
+				MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
 			return;
 		}
 	}
@@ -784,6 +786,10 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
+static inline void dump_md(struct io_md *md)
+{
+		MAIO_LOG(ERR, "state %lx transit %d dbg %d\n", md->state, md->in_transit, md->in_transit_dbg);
+}
 #define COMP_RING_LEN	1024
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
@@ -796,6 +802,8 @@ static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 	struct io_md *md;
 
 	md = mbuf2io_md(mbuf);
+	if (md->in_transit)
+		dump_md(md);
 	return !md->in_transit;
 }
 
@@ -811,6 +819,8 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	}
 
 	if (unlikely(nr_free == RTE_MAIO_TX_MAX_FREE_BUF_SZ)) {
+		//check if safe is raw?
+
 		rte_mempool_put_bulk(maio_mb_pool, (void **)free, nr_free);
 		nr_free = 0;
 	}
@@ -819,15 +829,20 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
-	while (comp_ring[comp_ring_tail]) {
-		MAIO_LOG(ERR, "basically impossible... just poll here...\n");
+	if (comp_ring[comp_ring_tail]) {
+		MAIO_LOG(ERR, "basically impossible... just poll here... [%d]\n", comp_ring_tail);
+		while (! maio_tx_complete(comp_ring[comp_ring_tail]));
+		MAIO_LOG(ERR, "basically impossible... WTF?!\n");
 	}
 	comp_ring[comp_ring_tail++] = mbuf;
+	comp_ring_tail &= (COMP_RING_LEN  - 1);
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring[comp_ring_idx])) {
 		comp_ring[comp_ring_idx++] = 0;
+		comp_ring_idx &= (COMP_RING_LEN  - 1);
 		maio_put_mbuf(mbuf);
+		MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
 
 	return;

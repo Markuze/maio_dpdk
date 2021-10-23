@@ -66,7 +66,8 @@ struct io_md {
 	/* DPDK Retransmit support */
 	uint16_t tx_cnt;
 	uint16_t tx_compl;
-	uint16_t in_transit;
+	volatile uint16_t in_transit;
+	volatile uint16_t in_transit_dbg;
 };
 
 struct meta_pages_0 {
