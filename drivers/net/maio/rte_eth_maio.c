@@ -604,7 +604,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 #define post_tx_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = ((unsigned long)p | 0x1)
 #define advance_rx_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
 
-#define REFILL_NUM	32
+#define REFILL_NUM	64
 static inline void post_refill_rx_page(struct user_ring *ring)
 {
 	static struct rte_mbuf *mbufs[REFILL_NUM];
@@ -619,7 +619,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 		}
 	}
 	post_rx_ring_entry(ring, mbufs[idx]);
-	idx = (idx & (REFILL_NUM -1));
+	idx = (++idx & (REFILL_NUM -1));
 }
 
 static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
