@@ -801,6 +801,9 @@ static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
 
+	if (!mbuf)
+		return 0;
+
 	md = mbuf2io_md(mbuf);
 	if (md->in_transit)
 		dump_md(md);
@@ -816,6 +819,9 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	// If rc == 1 queue for freeing, else dec ref.
 	if ((rte_pktmbuf_prefree_seg(mbuf))) {
 		free[nr_free++] = mbuf;
+		MAIO_LOG(ERR, "nr_free %d rc = [%d]\n", nr_free, rte_mbuf_refcnt_read(mbuf));
+	} else {
+		MAIO_LOG(ERR, "basically impossible... rc = [%d]\n", rte_mbuf_refcnt_read(mbuf));
 	}
 
 	if (unlikely(nr_free == RTE_MAIO_TX_MAX_FREE_BUF_SZ)) {
@@ -842,7 +848,7 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 		comp_ring[comp_ring_idx++] = 0;
 		comp_ring_idx &= (COMP_RING_LEN  - 1);
 		maio_put_mbuf(mbuf);
-		MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
+		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
 
 	return;
