@@ -44,7 +44,8 @@ static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 static int lwm_mark_trigger;
 
-#define trace_marker 	"/sys/kernel/tracing/trace_marker"
+#define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
+#define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
 static int trace_fd;
 
 #define WRITE_BUFF_LEN	256
@@ -602,7 +603,8 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 #define rx_ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
 #define tx_ring_entry(r)			(r)->ring[(r)->consumer & ETH_MAIO_DFLT_DESC_MASK]
 #define post_tx_ring_entry(r, p)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = ((unsigned long)p | 0x1)
-#define advance_rx_ring(r)			(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
+#define advance_rx_ring_clear(r)		(r)->ring[(r)->consumer++ & ETH_MAIO_DFLT_DESC_MASK] = 0
+#define advance_rx_ring(r)			(r)->consumer++
 
 #define REFILL_NUM	64
 static inline void post_refill_rx_page(struct user_ring *ring)
@@ -726,7 +728,7 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 			break;
 
 		if (addr_wm_signal(addr)) {
-			advance_rx_ring(ring);
+			advance_rx_ring_clear(ring);
 			continue;
 		}
 		mbuf 	= maio_addr2mbuf(addr);
@@ -819,7 +821,7 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	// If rc == 1 queue for freeing, else dec ref.
 	if ((rte_pktmbuf_prefree_seg(mbuf))) {
 		free[nr_free++] = mbuf;
-		MAIO_LOG(ERR, "nr_free %d rc = [%d]\n", nr_free, rte_mbuf_refcnt_read(mbuf));
+		//MAIO_LOG(ERR, "nr_free %d rc = [%d]\n", nr_free, rte_mbuf_refcnt_read(mbuf));
 	} else {
 		MAIO_LOG(ERR, "basically impossible... rc = [%d]\n", rte_mbuf_refcnt_read(mbuf));
 	}
@@ -1226,8 +1228,13 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
 
 	trace_fd = open(trace_marker, O_WRONLY);
-	MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
-	trace_write("Hello :)!\n");
+	if (trace_fd < 0) {
+		trace_fd = open(trace_marker_alt, O_WRONLY);
+	}
+	if (trace_fd > 0) {
+		MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
+		trace_write("Hello :)!\n");
+	}
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
