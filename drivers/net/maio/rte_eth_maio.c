@@ -159,7 +159,6 @@ static void eth_dev_close(struct rte_eth_dev *dev)
 
 static int eth_dev_configure(struct rte_eth_dev *dev __rte_unused)
 {
-	MAIO_LOG(ERR, "%d\n", __LINE__);
         return 0;
 }
 
@@ -167,8 +166,6 @@ static int eth_dev_configure(struct rte_eth_dev *dev __rte_unused)
 static int eth_dev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 {
 	struct pmd_internals *internals = dev->data->dev_private;
-
-	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	dev_info->if_index = internals->if_index;
 	dev_info->max_mac_addrs = 1;
@@ -198,8 +195,6 @@ static int eth_dev_mtu_set(struct rte_eth_dev *dev, uint16_t mtu)
 	int ret;
 	int s;
 
-	MAIO_LOG(ERR, "%d\n", __LINE__);
-
 	s = socket(PF_INET, SOCK_DGRAM, 0);
 	if (s < 0)
 		return -EINVAL;
@@ -216,8 +211,6 @@ static int eth_dev_change_flags(char *if_name, uint32_t flags, uint32_t mask)
 	struct ifreq ifr;
 	int ret = 0;
 	int s;
-
-	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	s = socket(PF_INET, SOCK_DGRAM, 0);
 	if (s < 0)
@@ -243,16 +236,12 @@ static int eth_dev_promiscuous_enable(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals = dev->data->dev_private;
 
-	MAIO_LOG(ERR, "%d\n", __LINE__);
-
 	return eth_dev_change_flags(internals->if_name, IFF_PROMISC, ~0);
 }
 
 static int eth_dev_promiscuous_disable(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *internals = dev->data->dev_private;
-
-	MAIO_LOG(ERR, "%d\n", __LINE__);
 
 	return eth_dev_change_flags(internals->if_name, 0, ~IFF_PROMISC);
 }
@@ -421,7 +410,6 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "%s: %d bytes will fit in mbuf (%d bytes)\n",
 		dev->device->name, data_size, buf_size);
 #endif
-	MAIO_LOG(ERR, "HERE %d\n", __LINE__);
 	maio_map_mbuf(mb_pool);
 	dev->data->rx_queues[rx_queue_id] = internals->matrix;
 
@@ -462,20 +450,17 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 
 	internals->matrix->tx[NAPI_THREAD_IDX].fd = napi_proc;
 	internals->matrix->tx[NAPI_THREAD_IDX].dev_idx = internals->if_index;
-	MAIO_LOG(ERR, "%s %d\n","HERE" ,__LINE__);
 
 	return 0;
 }
 
 static void eth_queue_release(void *q __rte_unused)
 {
-	MAIO_LOG(ERR, "%d\n", __LINE__);
 }
 
 static int eth_link_update(struct rte_eth_dev *dev __rte_unused,
 				int wait_to_complete __rte_unused)
 {
-	MAIO_LOG(ERR, "%d\n", __LINE__);
 	return 0;
 }
 
@@ -1037,23 +1022,19 @@ static uint16_t eth_maio_tx(void *queue,
 
 static inline int get_iface_info(const char *if_name, struct rte_ether_addr *eth_addr, int *if_index)
 {
-	int line = __LINE__;
 	int rc = 0;
         struct ifreq ifr;
         int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 
-	line = __LINE__;
         if (sock < 0)
                 return -1;
 
-	line = __LINE__;
         strlcpy(ifr.ifr_name, if_name, IFNAMSIZ);
         if ((rc = ioctl(sock, SIOCGIFINDEX, &ifr)))
                 goto error;
 
         *if_index = ifr.ifr_ifindex;
 
-	line = __LINE__;
         if ((rc = ioctl(sock, SIOCGIFHWADDR, &ifr)))
                 goto error;
 
@@ -1064,7 +1045,7 @@ static inline int get_iface_info(const char *if_name, struct rte_ether_addr *eth
 
 error:
         close(sock);
-	MAIO_LOG(ERR, "%s: Failed on %d with %d\n", ifr.ifr_name, line, rc);
+	MAIO_LOG(ERR, "%s: Failed with %d\n", ifr.ifr_name, rc);
         return -1;
 }
 
