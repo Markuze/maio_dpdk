@@ -618,6 +618,8 @@ static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mb
 	if (md->state && md->state != MAIO_PAGE_USER) {
 		dump_md(md);
 		ASSERT(md->state == MAIO_PAGE_USER);
+	} else {
+		md->state = MAIO_PAGE_REFILL;
 	}
 	post_rx_ring_entry(ring, mbuf);
 }
@@ -629,7 +631,7 @@ static inline void post_tx_ring_safe(struct tx_user_ring *ring, void *addr)
 	////in some case PAGE_TX is also valid
 	if (md->state && md->state != MAIO_PAGE_USER) {
 		dump_md(md);
-		ASSERT(md->state & MAIO_PAGE_USER|MAIO_PAGE_TX);
+		ASSERT((md->state & (MAIO_PAGE_USER|MAIO_PAGE_TX)));
 	}
 	post_tx_ring_entry(ring, addr);
 }
@@ -638,17 +640,16 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 {
 	static struct rte_mbuf *mbufs[REFILL_NUM];
 	static int idx;
-	static int verbose;
 
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
-			if (!(verbose & 0x3ff))
-				MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
+			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
 			return;
 		}
 	}
 
 	post_rx_ring_safe(ring, mbufs[idx]);
+	mbufs[idx] = 0;
 	idx = (++idx & (REFILL_NUM -1));
 }
 
@@ -864,9 +865,12 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring[comp_ring_idx])) {
+		struct rte_mbuf *m = comp_ring[comp_ring_idx];
+
 		comp_ring[comp_ring_idx++] = 0;
 		comp_ring_idx &= (COMP_RING_LEN  - 1);
-		maio_put_mbuf(mbuf);
+
+		maio_put_mbuf(m);
 		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
 
