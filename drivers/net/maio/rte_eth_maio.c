@@ -118,8 +118,8 @@ static void eth_dev_stop(struct rte_eth_dev *dev)
 	char write_buffer[64] = {0};
 	struct pmd_internals *internals  = dev->data->dev_private;
 
-	snprintf(write_buffer, 64, "%d %d\n", 0, internals->if_index);
-	maio_set_state("0");
+	snprintf(write_buffer, 64, "%d %d", 0, internals->if_index);
+	maio_set_state(write_buffer);
         dev->data->dev_link.link_status = ETH_LINK_DOWN;
 }
 
@@ -128,7 +128,7 @@ static int eth_dev_start(struct rte_eth_dev *dev)
 	char write_buffer[64] = {0};
 	struct pmd_internals *internals  = dev->data->dev_private;
 
-	snprintf(write_buffer, 64, "%d %d\n", 1, internals->if_index);
+	snprintf(write_buffer, 64, "%d %d", 1, internals->if_index);
 	maio_set_state(write_buffer);
 	dev->data->dev_link.link_status = ETH_LINK_UP;
 
@@ -580,6 +580,17 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
+#define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
+
+static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
+{
+	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
+	md = md & PAGE_MASK;
+	md += VC_MD_OFFSET;
+
+	return (struct io_md *)md;
+}
+
 #define SHOW_IO(...)
 //#define SHOW_IO(a,b)	show_io(a,b);
 
@@ -592,6 +603,26 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 #define advance_rx_ring(r)			(r)->consumer++
 
 #define REFILL_NUM	64
+static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mbuf)
+{
+	struct io_md *md = mbuf2io_md(mbuf);
+	if (md->state) {
+		MAIO_LOG(ERR, "%s state %lx\n", __FUNCTION__, md->state);
+		ASSERT(md->state == MAIO_PAGE_USER);
+	}
+	post_rx_ring_entry(ring, mbuf);
+}
+
+static inline void post_tx_ring_safe(struct tx_user_ring *ring, struct rte_mbuf *mbuf)
+{
+	struct io_md *md = mbuf2io_md(mbuf);
+	if (md->state) {
+		MAIO_LOG(ERR, "%s state %lx\n", __FUNCTION__, md->state);
+		ASSERT(md->state == MAIO_PAGE_USER||md->state == MAIO_PAGE_TX);
+	}
+	post_tx_ring_entry(ring, mbuf);
+}
+
 static inline void post_refill_rx_page(struct user_ring *ring)
 {
 	static struct rte_mbuf *mbufs[REFILL_NUM];
@@ -605,6 +636,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 			return;
 		}
 	}
+
 	post_rx_ring_entry(ring, mbufs[idx]);
 	idx = (++idx & (REFILL_NUM -1));
 }
@@ -683,17 +715,6 @@ static inline int addr_wm_signal(uint64_t addr)
 	}
 #endif
 	return 0;
-}
-
-#define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
-
-static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
-{
-	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
-	md = md & PAGE_MASK;
-	md += VC_MD_OFFSET;
-
-	return (struct io_md *)md;
 }
 
 static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
@@ -790,10 +811,11 @@ static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 
 	if (!mbuf)
 		return 0;
-
 	md = mbuf2io_md(mbuf);
+#if 0
 	if (md->in_transit)
 		dump_md(md);
+#endif
 	return !md->in_transit;
 }
 
