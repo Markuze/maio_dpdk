@@ -581,6 +581,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 }
 
 #define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
+#define void2io_md(addr) (struct io_md *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + VC_MD_OFFSET)
 
 static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 {
@@ -590,6 +591,13 @@ static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 
 	return (struct io_md *)md;
 }
+
+static inline void __dump_md(struct io_md *md, int line)
+{
+		MAIO_LOG(ERR, "%d: state %lx transit %d dbg %d\n", line, md->state, md->in_transit, md->in_transit_dbg);
+}
+
+#define dump_md(m)	__dump_md(m, __LINE__)
 
 #define SHOW_IO(...)
 //#define SHOW_IO(a,b)	show_io(a,b);
@@ -606,21 +614,22 @@ static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mbuf)
 {
 	struct io_md *md = mbuf2io_md(mbuf);
-	if (md->state) {
-		MAIO_LOG(ERR, "%s state %lx\n", __FUNCTION__, md->state);
-		ASSERT(md->state == MAIO_PAGE_USER);
+
+	if (md->state && md->state != MAIO_PAGE_USER) {
+		dump_md(md);
 	}
 	post_rx_ring_entry(ring, mbuf);
 }
 
-static inline void post_tx_ring_safe(struct tx_user_ring *ring, struct rte_mbuf *mbuf)
+static inline void post_tx_ring_safe(struct tx_user_ring *ring, void *addr)
 {
-	struct io_md *md = mbuf2io_md(mbuf);
-	if (md->state) {
-		MAIO_LOG(ERR, "%s state %lx\n", __FUNCTION__, md->state);
-		ASSERT(md->state == MAIO_PAGE_USER||md->state == MAIO_PAGE_TX);
+	struct io_md *md = void2io_md(addr);
+
+	////in some case PAGE_TX is also valid
+	if (md->state && md->state != MAIO_PAGE_USER) {
+		dump_md(md);
 	}
-	post_tx_ring_entry(ring, mbuf);
+	post_tx_ring_entry(ring, addr);
 }
 
 static inline void post_refill_rx_page(struct user_ring *ring)
@@ -637,7 +646,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 		}
 	}
 
-	post_rx_ring_entry(ring, mbufs[idx]);
+	post_rx_ring_safe(ring, mbufs[idx]);
 	idx = (++idx & (REFILL_NUM -1));
 }
 
@@ -794,10 +803,6 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-static inline void dump_md(struct io_md *md)
-{
-		MAIO_LOG(ERR, "state %lx transit %d dbg %d\n", md->state, md->in_transit, md->in_transit_dbg);
-}
 #define COMP_RING_LEN	1024
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
@@ -824,11 +829,14 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 {
 	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
 	static int nr_free;
+	struct rte_mbuf *m;
 
 	// If rc == 1 queue for freeing, else dec ref.
-	if ((rte_pktmbuf_prefree_seg(mbuf))) {
-		free[nr_free++] = mbuf;
-		//MAIO_LOG(ERR, "nr_free %d rc = [%d]\n", nr_free, rte_mbuf_refcnt_read(mbuf));
+	if ((m = rte_pktmbuf_prefree_seg(mbuf))) {
+		struct io_md *md 	= mbuf2io_md(m);
+		if (md->state != MAIO_PAGE_USER)
+			dump_md(md);
+		free[nr_free++] = m;
 	} else {
 		MAIO_LOG(ERR, "basically impossible... rc = [%d]\n", rte_mbuf_refcnt_read(mbuf));
 	}
@@ -962,7 +970,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
 
-		post_tx_ring_entry(ring, rte_pktmbuf_mtod(mbuf, void *));
+		post_tx_ring_safe(ring, rte_pktmbuf_mtod(mbuf, void *));
 		bufs++;
 
 		i++;
