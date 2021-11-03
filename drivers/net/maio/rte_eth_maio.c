@@ -617,6 +617,7 @@ static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mb
 
 	if (md->state && md->state != MAIO_PAGE_USER) {
 		dump_md(md);
+		ASSERT(md->state == MAIO_PAGE_USER);
 	}
 	post_rx_ring_entry(ring, mbuf);
 }
@@ -628,6 +629,7 @@ static inline void post_tx_ring_safe(struct tx_user_ring *ring, void *addr)
 	////in some case PAGE_TX is also valid
 	if (md->state && md->state != MAIO_PAGE_USER) {
 		dump_md(md);
+		ASSERT(md->state & MAIO_PAGE_USER|MAIO_PAGE_TX);
 	}
 	post_tx_ring_entry(ring, addr);
 }

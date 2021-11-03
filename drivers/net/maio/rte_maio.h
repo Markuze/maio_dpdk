@@ -53,10 +53,12 @@
 
 #define LWM_TRIGGER_COUNT	128	/* get 4K pages back to kernel */
 /***************************** SYNC WITH KERNEL DEFINITIONS *******************/
-#define MAIO_PAGE_REFILL        0x4000
-#define MAIO_PAGE_HEAD          0x2000
-#define MAIO_PAGE_FREE          0x1000
+#define MAIO_PAGE_NEW           0x10000
+#define MAIO_PAGE_REFILL        0x8000
+#define MAIO_PAGE_HEAD          0x4000
+#define MAIO_PAGE_FREE          0x2000
 #define MAIO_PAGE_IO            (MAIO_PAGE_TX|MAIO_PAGE_RX|MAIO_PAGE_NAPI)   // TX|RX|NAPI
+#define MAIO_PAGE_NS            0x1000   // storred in the magz
 #define MAIO_PAGE_NAPI          0x800   // storred in the magz
 #define MAIO_PAGE_TX            0x400   // sent by user
 #define MAIO_PAGE_RX            0x200   // alloced from magz - usualy RX
