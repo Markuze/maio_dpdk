@@ -42,7 +42,6 @@
 
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
-static int lwm_mark_trigger;
 
 #define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
 #define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
@@ -385,6 +384,8 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	return 0;
 }
 
+static void maio_prefill_rx_rings(struct user_matrix *matrix);
+
 static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 				uint16_t rx_queue_id,
 				uint16_t nb_rx_desc __rte_unused,
@@ -412,6 +413,8 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 #endif
 	maio_map_mbuf(mb_pool);
 	dev->data->rx_queues[rx_queue_id] = internals->matrix;
+
+	maio_prefill_rx_rings(internals->matrix);
 
 	return 0;
 #if 0
@@ -702,13 +705,7 @@ static inline int addr_wm_signal(uint64_t addr)
 {
 	struct rte_mbuf *mbuf;
 
-	if (addr == MAIO_POISON) {
-		//MAIO_LOG(WARN, "LWM = ON: addr = %llx\n", addr);
-		lwm_mark_trigger = LWM_TRIGGER_COUNT;
-		return 1;
-	}
-
-	//page aligned address is a refill packet
+	//page aligned address is a refill packet -- Head Page
 	if (!(addr & ETH_MAIO_STRIDE_BOTTOM_MASK)) {
 		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
 		/*TODO: Add rte_pktmbuf_free_bulk optimization */
@@ -780,7 +777,31 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 	return &bufs[i];
 }
 
-//RX HERE
+static inline int prefill_maio_ring(struct user_ring *ring)
+{
+	int i = 0;
+	uint64_t addr;
+
+	while (! (addr = rx_ring_entry(ring)))  {
+		post_refill_rx_page(ring);
+		advance_rx_ring(ring);
+		++i;
+	}
+	return i;
+}
+
+
+static inline void maio_prefill_rx_rings(struct user_matrix *matrix)
+{
+	int i;
+
+	for (i = 0; i < NUM_MAX_RINGS; i++) {
+		int cnt = prefill_maio_ring(&matrix->rx[i]);
+		if (cnt)
+			MAIO_LOG(ERR, "Prefilled %d pages on ring %d\n", cnt, i);
+	}
+}
+
 static uint16_t eth_maio_rx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
@@ -1000,6 +1021,7 @@ static uint16_t eth_maio_napi(void *queue,
 	char write_buffer[WRITE_BUFF_LEN] = {0};
 	int len, rc;
 
+# if 0
 	if (lwm_mark_trigger) {
 		struct rte_mbuf *mbufs[REFILL_NUM];
 
@@ -1011,6 +1033,7 @@ static uint16_t eth_maio_napi(void *queue,
 		rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], mbufs, REFILL_NUM, NULL);
 		--lwm_mark_trigger;
 	}
+#endif
 	rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
 	/* Ring DoorBell -- SysCall */
 	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, NAPI_THREAD_IDX);
@@ -1029,6 +1052,7 @@ static uint16_t eth_maio_tx(void *queue,
 	int len, i, rc = nb_pkts;
 
 	for (i = 0; i < 1; i++) {
+#if 0
 		if (lwm_mark_trigger) {
 			struct rte_mbuf *mbufs[REFILL_NUM];
 
@@ -1040,6 +1064,7 @@ static uint16_t eth_maio_tx(void *queue,
 			rc = post_maio_ring(&matrix->tx[i], mbufs, REFILL_NUM, NULL);
 			--lwm_mark_trigger;
 		}
+#endif
 		rc = post_maio_ring(&matrix->tx[i], bufs, nb_pkts, &stats->tx_queue[i]);
 		/* Ring DoorBell -- SysCall */
 		/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
