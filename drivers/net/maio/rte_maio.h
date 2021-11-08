@@ -25,7 +25,8 @@
 #define ETH_MAIO_STRIDE_BOTTOM_MASK	(ETH_MAIO_MBUF_STRIDE -1)
 #define ETH_MAIO_DFLT_NUM_DESCS		1024
 #define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
-#define ETH_MAIO_NUM_INIT_BUFFS		(ETH_MAIO_DFLT_NUM_DESCS * 8)
+//NR Rings * size + headpages + local core pages (mags * mag size)
+#define ETH_MAIO_NUM_INIT_BUFFS		((ETH_MAIO_DFLT_NUM_DESCS * 8) + 8*2 + 8*8)
 
 
 #define MAIO_STATUS_VLAN_VALID	0x1
@@ -34,11 +35,11 @@
 //#define ETH_MAIO_MBUF_OVERHEAD		0	/*TODO: Velo overhed is set here... */
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
-#define VC_MD_OFFSET	(PAGE_SIZE -64)
-#define NUM_MAX_RINGS	16
+#define VC_MD_OFFSET		(PAGE_SIZE -64)
+#define NUM_MAX_RINGS		16
 #define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
-#define NUM_RING_TYPES	2
-#define RE_SZ	(sizeof(void *))
+#define NUM_RING_TYPES		2
+#define RE_SZ			(sizeof(void *))
 
 #define DATA_MTRX_SZ ((ETH_MAIO_DFLT_NUM_DESCS * NUM_MAX_RINGS) * NUM_RING_TYPES * RE_SZ)
 

@@ -639,6 +639,14 @@ static inline void post_tx_ring_safe(struct tx_user_ring *ring, void *addr)
 	post_tx_ring_entry(ring, addr);
 }
 
+static inline int is_head_page(void *buf)
+{
+	unsigned long long addr = (unsigned long long)buf;
+	addr &= PAGE_MASK & HP_MASK;
+
+	return !addr;
+}
+
 static inline void post_refill_rx_page(struct user_ring *ring)
 {
 	static struct rte_mbuf *mbufs[REFILL_NUM];
@@ -651,7 +659,20 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 		}
 	}
 
-	post_rx_ring_safe(ring, mbufs[idx]);
+	if (unlikely(is_head_page(mbufs[idx]))) {
+		struct rte_mbuf *mbuf = rte_pktmbuf_alloc(maio_mb_pool);
+
+		/* This is mbuf can also be a HeadPage, but its O.k */
+		if (likely(mbuf)) {
+			post_rx_ring_safe(ring, mbuf);
+		}
+
+		rte_pktmbuf_free(mbufs[idx]);
+
+	} else {
+		post_rx_ring_safe(ring, mbufs[idx]);
+	}
+
 	mbufs[idx] = 0;
 	idx = (++idx & (REFILL_NUM -1));
 }
@@ -742,7 +763,8 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		if (is_rx_refill_page(addr))
 			break;
 
-		if (addr_wm_signal(addr)) {
+		//This allows the kernel to return HeadPages
+		if (unlikely(addr_wm_signal(addr))) {
 			advance_rx_ring_clear(ring);
 			continue;
 		}
