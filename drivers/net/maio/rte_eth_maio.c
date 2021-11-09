@@ -763,11 +763,15 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		if (is_rx_refill_page(addr))
 			break;
 
+/* Current MAIO doesnt push packets via the RX ring - due to refill lag
+
 		//This allows the kernel to return HeadPages
 		if (unlikely(addr_wm_signal(addr))) {
+			post_refill_rx_page(ring);
 			advance_rx_ring_clear(ring);
 			continue;
 		}
+*/
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
