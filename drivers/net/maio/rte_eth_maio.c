@@ -313,13 +313,6 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	struct meta_pages_0 *pages;
 	struct rte_mbuf **mbufs;
 
-	static int memory_ready;
-
-	if (memory_ready)
-		return 0;
-
-	memory_ready = 1;
-
 	len = min(ETH_MAIO_NUM_INIT_BUFFS, mb_pool->populated_size >> 1);
 
 	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
@@ -335,6 +328,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
         }
 #if 1
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
+	MAIO_LOG(ERR, "/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */\n");
 	maio_map_memory((void *)get_base_addr(mb_pool), DIV_ROUND_UP_HP((mb_pool->populated_size * ETH_MAIO_MBUF_STRIDE)));
 #endif
 	for (i = 0; i < len; i++) {
@@ -768,7 +762,8 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		//This allows the kernel to return HeadPages
 		if (unlikely(addr_wm_signal(addr))) {
 			post_refill_rx_page(ring);
-			advance_rx_ring_clear(ring);
+			//TODO: Now just pushing headpages will work
+			advance_rx_ring(ring);
 			continue;
 		}
 */
@@ -881,6 +876,7 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 	static int nr_free;
 	struct rte_mbuf *m;
 
+	//TODO: This leaks multiseg packets
 	// If rc == 1 queue for freeing, else dec ref.
 	if ((m = rte_pktmbuf_prefree_seg(mbuf))) {
 		struct io_md *md 	= mbuf2io_md(m);
@@ -946,6 +942,7 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	}
 	return;
 }
+#endif
 
 static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 {
@@ -953,13 +950,13 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 
 	if (!new)
 		return NULL;
-	maio_put_mbuf(mbuf);
+	rte_pktmbuf_free(mbuf);
+	//maio_put_mbuf(mbuf);
 
 	return new;
 }
 
 #define CPY_TX
-#endif
 
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
@@ -970,7 +967,8 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 	int i = 0;
 
 	while (nb_pkts--)  {
-		struct rte_mbuf *mbuf = *bufs;
+		struct rte_mbuf *mbuf = NULL;
+		struct rte_mbuf *tx_mbuf = *bufs;
 		struct io_md *md;
 		unsigned long long comp_addr = tx_ring_entry(ring);
 
@@ -993,22 +991,15 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			}
 		}
 
-		SHOW_IO(mbuf, "cpyTX");
-		ASSERT(mbuf->pool == maio_mb_pool);
+		SHOW_IO(tx_mbuf, "cpyTX");
+		ASSERT(tx_mbuf->pool == maio_mb_pool);
 
-#if 0
-		if (likely(tx_queue)) {
 #ifdef CPY_TX
-			mbuf = get_cpy_mbuf(mbuf);
-			if (unlikely(!mbuf))
-				goto stats;
+		mbuf = get_cpy_mbuf(tx_mbuf);
+		if (unlikely(!mbuf))
+			goto stats;
 #else
-			if (rte_mbuf_refcnt_read(mbuf) != 1) {
-				//The kernel will not reuse page
-				flags |= MAIO_STATUS_USER_LOCKED;
-			}
-#endif
-		}
+		mbuf = tx_mbuf;
 #endif
 		md 	= mbuf2io_md(mbuf);
 
@@ -1030,10 +1021,8 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		bytes += md->len;
 	}
 stats:
-	if (tx_queue) {
-		tx_queue->pkts	+= i;
-		tx_queue->bytes += bytes;
-	}
+	tx_queue->pkts	+= i;
+	tx_queue->bytes += bytes;
 
 	return i;
 }
@@ -1288,20 +1277,23 @@ free_kvlist:
 static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 {
 	struct in_params in_params = {0};
-        struct rte_kvargs *kvlist;
-        struct rte_eth_dev *eth_dev = NULL;
-        const char *name;
+	struct rte_kvargs *kvlist;
+	struct rte_eth_dev *eth_dev = NULL;
+	const char *name;
+	static int memory_ready;
 
 	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
         MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
 
-	trace_fd = open(trace_marker, O_WRONLY);
-	if (trace_fd < 0) {
-		trace_fd = open(trace_marker_alt, O_WRONLY);
-	}
-	if (trace_fd > 0) {
-		MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
-		trace_write("Hello :)!\n");
+	if (!trace_fd) {
+		trace_fd = open(trace_marker, O_WRONLY);
+		if (trace_fd < 0) {
+			trace_fd = open(trace_marker_alt, O_WRONLY);
+		}
+		if (trace_fd > 0) {
+			MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
+			trace_write("Hello :)!\n");
+		}
 	}
 
         name = rte_vdev_device_name(dev);
@@ -1330,7 +1322,10 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
         }
 
 	/* map hugepages to MAIO */
-	rte_memseg_list_walk(prep_map_mem, 0);
+	if (!memory_ready)
+		rte_memseg_list_walk(prep_map_mem, 0);
+
+	memory_ready = 1;
 
         eth_dev = maio_init_internals(dev, &in_params);
         if (eth_dev == NULL) {
