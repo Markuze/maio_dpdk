@@ -577,6 +577,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	printf("%s\n", write_buffer);
 }
 
+#define mbuf2list(addr)	 (struct list_head *)(((unsigned long long)(addr) & ETH_MAIO_STRIDE_TOP_MASK) + VC_NEXT_PTR)
 #define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
 #define void2io_md(addr) (struct io_md *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + VC_MD_OFFSET)
 
@@ -839,9 +840,8 @@ static uint16_t eth_maio_rx(void *queue,
 #define COMP_RING_LEN	1024
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
-static struct rte_mbuf *comp_ring[COMP_RING_LEN];
-static unsigned int comp_ring_idx;
-static unsigned int comp_ring_tail;
+static struct rte_mbuf *comp_ring;
+static struct rte_mbuf *comp_ring_tail;
 
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
@@ -889,20 +889,26 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
-	if (comp_ring[comp_ring_tail]) {
-		MAIO_LOG(ERR, "basically impossible... just poll here... [%d]\n", comp_ring_tail);
-		while (! maio_tx_complete(comp_ring[comp_ring_tail]));
-		MAIO_LOG(ERR, "basically impossible... WTF?!\n");
+	struct list_head *list = mbuf2list(mbuf);
+
+	list->next = NULL;
+
+	if (comp_ring == NULL) {
+		comp_ring	= mbuf;
+	} else {
+		list		= mbuf2list(comp_ring_tail);
+		list->next 	= mbuf;
 	}
-	comp_ring[comp_ring_tail++] = mbuf;
-	comp_ring_tail &= (COMP_RING_LEN  - 1);
+	comp_ring_tail	= mbuf;
 
 	/* drain complete TX buffers */
-	while (maio_tx_complete(comp_ring[comp_ring_idx])) {
-		struct rte_mbuf *m = comp_ring[comp_ring_idx];
+	while (maio_tx_complete(comp_ring)) {
+		struct rte_mbuf *m = comp_ring;
 
-		comp_ring[comp_ring_idx++] = 0;
-		comp_ring_idx &= (COMP_RING_LEN  - 1);
+		list = mbuf2list(m);
+
+		comp_ring = list->next;
+		list->next = NULL;
 
 		maio_put_mbuf(m);
 		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
