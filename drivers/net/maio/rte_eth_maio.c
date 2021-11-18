@@ -49,6 +49,7 @@ static int maio_logtype;
 static struct rte_mbuf *comp_ring;
 static struct rte_mbuf *comp_ring_tail;
 static unsigned long comp_len;
+static unsigned long comp_tot;
 
 #define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
 #define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
@@ -599,7 +600,8 @@ static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 
 static inline void __dump_md(struct io_md *md, int line)
 {
-		MAIO_LOG(ERR, "%d: state %lx transit %d dbg %d\n", line, md->state, md->in_transit, md->in_transit_dbg);
+		MAIO_LOG(ERR, "%d: [%llx]state %lx transit %d dbg %d\n", line, ((u64)md & PAGE_MASK),
+				md->state, md->in_transit, md->in_transit_dbg);
 }
 
 #define dump_md(m)	__dump_md(m, __LINE__)
@@ -657,7 +659,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
-			rte_panic("Hemm - %lu %d\n", comp_len, __LINE__);
+			rte_panic("Hemm - %lu/%lu %d\n", comp_len, comp_tot, __LINE__);
 			return;
 		}
 	}
@@ -899,16 +901,13 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	if (comp_ring == NULL) {
 		comp_ring	= mbuf;
 		if (comp_len)
-			MAIO_LOG(ERR, "Comp Len is wrong %lu\n", comp_len);
+			rte_panic("Comp Len is wrong %lu/%lu\n", comp_len, comp_tot);
 	} else {
 		list		= mbuf2list(comp_ring_tail);
 		list->next 	= mbuf;
 	}
 	++comp_len;
 	comp_ring_tail	= mbuf;
-
-	if (comp_len > 500)
-		rte_panic("Dude comeon\n");
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring)) {
@@ -920,9 +919,36 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 		list->next = NULL;
 
 		--comp_len;
+		++comp_tot;
 		maio_put_mbuf(m);
 		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
+
+	if (comp_len > 2048) {
+		mbuf = comp_ring;
+
+		while ((list = mbuf2list(mbuf))) {
+			struct rte_mbuf *next = list->next;
+			if (!next)
+				break;
+
+			if (maio_tx_complete(next)) {
+				struct list_head *tmp = mbuf2list(next);
+				list->next = tmp->next;
+				maio_put_mbuf(next);
+				mbuf = list->next;
+				--comp_len;
+				++comp_tot;
+			} else {
+				mbuf = next;
+			}
+			if (!mbuf)
+				break;
+		}
+		MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu\n",  comp_len, comp_tot);
+		//rte_panic("Dude comeon %lu/%lu - %d\n",  comp_len, comp_tot, i);
+	}
+
 
 	return;
 }

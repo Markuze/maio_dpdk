@@ -66,6 +66,8 @@
 #define MAIO_PAGE_RX            0x200   // alloced from magz - usualy RX
 #define MAIO_PAGE_USER          0x100   // page in user space control
 
+typedef unsigned long long int u64;
+
 struct io_md {
 	/* Kernel Debug */
 	uint64_t state;
