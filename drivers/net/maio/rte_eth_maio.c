@@ -43,6 +43,13 @@
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
+#define COMP_RING_LEN	1024
+#define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
+
+static struct rte_mbuf *comp_ring;
+static struct rte_mbuf *comp_ring_tail;
+static unsigned long comp_len;
+
 #define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
 #define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
 static int trace_fd;
@@ -650,6 +657,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
+			rte_panic("Hemm - %lu %d\n", comp_len, __LINE__);
 			return;
 		}
 	}
@@ -837,18 +845,13 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 
-#define COMP_RING_LEN	1024
-#define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
-
-static struct rte_mbuf *comp_ring;
-static struct rte_mbuf *comp_ring_tail;
-
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
 
 	if (!mbuf)
 		return 0;
+
 	md = mbuf2io_md(mbuf);
 #if 0
 	if (md->in_transit)
@@ -895,11 +898,17 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 
 	if (comp_ring == NULL) {
 		comp_ring	= mbuf;
+		if (comp_len)
+			MAIO_LOG(ERR, "Comp Len is wrong %lu\n", comp_len);
 	} else {
 		list		= mbuf2list(comp_ring_tail);
 		list->next 	= mbuf;
 	}
+	++comp_len;
 	comp_ring_tail	= mbuf;
+
+	if (comp_len > 500)
+		rte_panic("Dude comeon\n");
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring)) {
@@ -910,6 +919,7 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 		comp_ring = list->next;
 		list->next = NULL;
 
+		--comp_len;
 		maio_put_mbuf(m);
 		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
