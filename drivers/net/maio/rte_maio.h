@@ -26,7 +26,7 @@
 #define ETH_MAIO_DFLT_NUM_DESCS		1024
 #define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
 //NR Rings * size + headpages + local core pages (mags * mag size)
-#define ETH_MAIO_NUM_INIT_BUFFS		((ETH_MAIO_DFLT_NUM_DESCS * 8) + 8*2 + 8*16)
+#define ETH_MAIO_NUM_INIT_BUFFS		((ETH_MAIO_DFLT_NUM_DESCS * 8) + 8*2 + 8*128)
 
 
 #define MAIO_STATUS_VLAN_VALID	0x1

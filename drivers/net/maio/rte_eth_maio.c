@@ -653,19 +653,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 		}
 	}
 
-	if (unlikely(is_head_page(mbufs[idx]))) {
-		struct rte_mbuf *mbuf = rte_pktmbuf_alloc(maio_mb_pool);
-
-		/* This is mbuf can also be a HeadPage, but its O.k */
-		if (likely(mbuf)) {
-			post_rx_ring_safe(ring, mbuf);
-		}
-
-		rte_pktmbuf_free(mbufs[idx]);
-
-	} else {
-		post_rx_ring_safe(ring, mbufs[idx]);
-	}
+	post_rx_ring_safe(ring, mbufs[idx]);
 
 	mbufs[idx] = 0;
 	idx = (++idx & (REFILL_NUM -1));
@@ -872,6 +860,8 @@ static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 /* Warning this is not thread safe. Use TLS instead of static */
 static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 {
+	rte_pktmbuf_free(mbuf);
+# if 0
 	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
 	static int nr_free;
 	struct rte_mbuf *m;
@@ -893,6 +883,7 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 		rte_mempool_put_bulk(maio_mb_pool, (void **)free, nr_free);
 		nr_free = 0;
 	}
+#endif
 }
 
 
@@ -948,10 +939,10 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 {
 	struct rte_mbuf *new = rte_pktmbuf_copy(mbuf, maio_mb_pool, 0, UINT32_MAX);
 
+	maio_put_mbuf(mbuf);
+
 	if (!new)
 		return NULL;
-	rte_pktmbuf_free(mbuf);
-	//maio_put_mbuf(mbuf);
 
 	return new;
 }
@@ -986,7 +977,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 				if (comp_md->tx_cnt == comp_md->tx_compl) {
 					enque_mbuf(comp_mbuf);
 				} else {
-					rte_pktmbuf_free_seg(comp_mbuf);
+					rte_pktmbuf_free(comp_mbuf);
 				}
 			}
 		}
