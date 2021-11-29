@@ -36,7 +36,6 @@
 //#define ETH_MAIO_DATA_HEADROOM 		(ETH_MAIO_MBUF_OVERHEAD + RTE_PKTMBUF_HEADROOM)
 
 #define VC_MD_OFFSET		(PAGE_SIZE -64)
-#define VC_NEXT_PTR		(PAGE_SIZE -512)
 #define NUM_MAX_RINGS		16
 #define NAPI_THREAD_IDX        (NUM_MAX_RINGS -1)
 #define NUM_RING_TYPES		2
@@ -68,6 +67,10 @@
 
 typedef unsigned long long int u64;
 
+struct list_head {
+	struct rte_mbuf *next;
+};
+
 struct io_md {
 	/* Kernel Debug */
 	uint64_t state;
@@ -81,12 +84,9 @@ struct io_md {
 	/* DPDK Retransmit support */
 	uint16_t tx_cnt;
 	uint16_t tx_compl;
+	struct list_head list;
 	volatile uint16_t in_transit;
 	volatile uint16_t in_transit_dbg;
-};
-
-struct list_head {
-	struct rte_mbuf *next;
 };
 
 struct meta_pages_0 {
