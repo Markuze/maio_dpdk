@@ -982,8 +982,6 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 	return new;
 }
 
-#define CPY_TX
-
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
@@ -993,11 +991,10 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 	int i = 0;
 
 	while (nb_pkts--)  {
-		struct rte_mbuf *mbuf = NULL;
+		struct rte_mbuf *mbuf = NULL, *m_seg;
 		struct rte_mbuf *tx_mbuf = *bufs;
-		struct io_md *md;
+		struct io_md *md, *seg_md;
 		unsigned long long comp_addr = tx_ring_entry(ring);
-
 
 		if (comp_addr & 0x1) {
 			//This is a kernel owned buffer, try again later.
@@ -1027,11 +1024,25 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 #else
 		mbuf = tx_mbuf;
 #endif
-		md 	= mbuf2io_md(mbuf);
+		/*********************/
 
-		md->flags	= flags;
-		md->poison	= MAIO_POISON;
-		md->len		= rte_pktmbuf_data_len(mbuf);
+		m_seg = mbuf;
+		do {
+			seg_md 	= mbuf2io_md(m_seg);
+
+			seg_md->flags	= flags;
+			seg_md->poison	= MAIO_POISON;
+			seg_md->len	= rte_pktmbuf_data_len(m_seg);
+
+			m_seg = m_seg->next;
+			if (m_seg)
+				seg_md->next_frag = rte_pktmbuf_mtod(m_seg, void *);
+			else
+				seg_md->next_frag = NULL;
+		} while (m_seg != NULL);
+		/************************/
+
+		md = mbuf2io_md(mbuf);
 		++md->tx_cnt;
 
 		/* insert vlan info if necessary */
