@@ -43,7 +43,6 @@
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
-#define COMP_RING_LEN	1024
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
 static struct rte_mbuf *stalled;;
