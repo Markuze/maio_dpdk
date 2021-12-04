@@ -15,6 +15,7 @@
 
 #define ETH_MAIO_IFACE_ARG		"iface"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
+#define ETH_MAIO_QUEUE_LEN_ARG		"queue_len"
 
 #define PAGE_SIZE			0x1000
 #define PAGE_MASK			(~(PAGE_SIZE -1))
@@ -24,11 +25,18 @@
 #define ETH_MAIO_STRIDE_TOP_MASK	(~(ETH_MAIO_MBUF_STRIDE -1))
 #define ETH_MAIO_STRIDE_BOTTOM_MASK	(ETH_MAIO_MBUF_STRIDE -1)
 #define ETH_MAIO_DFLT_NUM_DESCS		4096
+#define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS -1)
+#define ETH_MAIO_MIN_NUM_DESCS		128
+#define ETH_MAIO_MAX_NUM_DESCS		8192
+#define ETH_MAIO_MIN_NUM_RINGS		1
+#define ETH_MAIO_MAX_NUM_RINGS		64
+#define ETH_MAIO_DFLT_NUM_RINGS		8
 #define ETH_DRVR_DFLT_NUM_DESCS		1024
-#define ETH_MAIO_DFLT_DESC_MASK		(ETH_MAIO_DFLT_NUM_DESCS - 1)
-//NR Rings * size + headpages + local core pages (mags * mag size)
-#define ETH_MAIO_NUM_INIT_BUFFS		((ETH_DRVR_DFLT_NUM_DESCS * 8) + 8*2 + 8*128)
 
+
+//NR Rings * size + headpages + local core pages (mags * mag size)
+#define ETH_MAIO_NUM_INIT_BUFFS(len, num)		((len * num) + num*2 + num*128)
+#define ETH_MAIO_NUM_INIT_BUFFS_MAX			ETH_MAIO_NUM_INIT_BUFFS(ETH_DRVR_DFLT_NUM_DESCS, 8)
 
 #define MAIO_STATUS_VLAN_VALID	0x1
 #define MAIO_STATE_TX_COMPLETE	0x2
@@ -131,6 +139,7 @@ struct common_ring_info {
 struct in_params {
 	char if_name[IFNAMSIZ];
 	int q_cnt;
+	int q_len;
 };
 
 typedef uint16_t (*eth_napi_tx_burst_t)(void *rxq,
@@ -143,6 +152,7 @@ struct pmd_internals {
 	struct rte_mempool *mb_pool;
 	int if_index;
 	int q_cnt;
+	int q_len;
 	char if_name[IFNAMSIZ];
 	struct rte_ether_addr eth_addr;
 };
@@ -174,7 +184,6 @@ struct tx_user_ring {
 	unsigned long long *ring;
 	int fd;
 	int dev_idx;
-
 };// __rte_cache_aligned;
 
 struct user_matrix {

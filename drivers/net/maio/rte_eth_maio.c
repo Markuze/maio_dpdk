@@ -70,9 +70,10 @@ static int trace_fd;
 						__FUNCTION__, __LINE__)		\
 
 static const char *const valid_arguments[] = {
-        ETH_MAIO_IFACE_ARG,
-        ETH_MAIO_QUEUE_COUNT_ARG,
-        NULL
+	ETH_MAIO_IFACE_ARG,
+	ETH_MAIO_QUEUE_COUNT_ARG,
+	ETH_MAIO_QUEUE_LEN_ARG,
+	NULL
 };
 
 static const struct rte_eth_link pmd_link = {
@@ -321,7 +322,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
 	struct meta_pages_0 *pages;
 	struct rte_mbuf **mbufs;
 
-	len = min(ETH_MAIO_NUM_INIT_BUFFS, mb_pool->populated_size >> 1);
+	len = min(ETH_MAIO_NUM_INIT_BUFFS_MAX, mb_pool->populated_size >> 1);
 
 	mbufs = rte_zmalloc_socket(NULL, sizeof(struct rte_mbuf *) * len,
 						RTE_CACHE_LINE_SIZE, rte_socket_id());
@@ -1227,7 +1228,16 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
 	}
 
 	strlcpy(internals->if_name, in_params->if_name, IFNAMSIZ);
-	internals->q_cnt = in_params->q_cnt;
+	internals->q_cnt = (in_params->q_cnt >= ETH_MAIO_MIN_NUM_RINGS &&
+				in_params->q_cnt <= ETH_MAIO_MAX_NUM_RINGS)
+				? in_params->q_cnt : ETH_MAIO_DFLT_NUM_RINGS;
+
+	/* Q Len must be pow2 */
+	in_params->q_len = (1 << rte_fls_u32(in_params->q_len));
+
+	internals->q_len = (in_params->q_len >= ETH_MAIO_MIN_NUM_DESCS &&
+				in_params->q_len <= ETH_MAIO_MAX_NUM_DESCS)
+				? in_params->q_len : ETH_MAIO_DFLT_NUM_DESCS;
 
 	ret = get_iface_info(internals->if_name, &internals->eth_addr, &internals->if_index);
         if (ret) {
@@ -1241,6 +1251,7 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
                 return NULL;
 	}
 
+	MAIO_LOG(ERR, "Set %s q_cnt %d q_len %d\n", internals->if_name, internals->q_cnt, internals->q_len);
         eth_dev->data->dev_private = internals;
         eth_dev->data->dev_link = pmd_link;
         eth_dev->data->mac_addrs = &internals->eth_addr;
@@ -1255,16 +1266,12 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
 
 /** parse integer from integer argument */
 static int parse_integer_arg(const char *key __rte_unused,
-				const char *value, void *extra_args)
+					const char *value, void *extra_args)
 {
 	int *i = (int *)extra_args;
 	char *end;
 
-	*i = strtol(value, &end, 10);
-	if (*i < 0) {
-		MAIO_LOG(ERR, "Argument has to be positive.\n");
-		return -EINVAL;
-	}
+	*i = strtoul(value, &end, 10);
 
 	return 0;
 }
@@ -1297,6 +1304,11 @@ static inline int parse_parameters(struct rte_kvargs *kvlist, struct in_params *
 
 	ret = rte_kvargs_process(kvlist, ETH_MAIO_QUEUE_COUNT_ARG,
 				 &parse_integer_arg, &params->q_cnt);
+	if (ret < 0)
+		goto free_kvlist;
+
+	ret = rte_kvargs_process(kvlist, ETH_MAIO_QUEUE_LEN_ARG,
+				 &parse_integer_arg, &params->q_len);
 	if (ret < 0)
 		goto free_kvlist;
 
@@ -1403,8 +1415,8 @@ static struct rte_vdev_driver pmd_maio_drv = {
 RTE_PMD_REGISTER_VDEV(net_maio, pmd_maio_drv);
 RTE_PMD_REGISTER_PARAM_STRING(net_maio,
                               "iface=<string> "
-                              "start_queue=<int> "
-                              "queue_count=<int> ");
+                              "queue_count=<uint> "
+                              "queue_len=<uint> ");
 
 RTE_INIT(maio_init_log)
 {
