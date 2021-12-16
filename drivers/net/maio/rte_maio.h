@@ -35,8 +35,8 @@
 
 
 //NR Rings * size + headpages + local core pages (mags * mag size)
-#define MAG_SZ				128
-#define ETH_MAIO_NUM_INIT_BUFFS(len, num)		((len * num) + num*5*MAG_SZ)
+#define MAG_SZ				64
+#define ETH_MAIO_NUM_INIT_BUFFS(len, num)		((len * num) + num*4*MAG_SZ)
 #define ETH_MAIO_NUM_INIT_BUFFS_MAX			ETH_MAIO_NUM_INIT_BUFFS(ETH_DRVR_DFLT_NUM_DESCS, 8)
 
 #define MAIO_STATUS_VLAN_VALID	0x1

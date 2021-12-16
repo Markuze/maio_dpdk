@@ -937,7 +937,7 @@ drain:
 		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
 	}
 
-	if (comp_len > 2048) {
+	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1)) {
 		struct rte_mbuf *m = remove_comp_ring_head();
 		enque_stalled(m);
 		MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu\n",  comp_len, comp_tot);
