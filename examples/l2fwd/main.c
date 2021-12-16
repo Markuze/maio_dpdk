@@ -35,7 +35,6 @@
 #include <rte_random.h>
 #include <rte_debug.h>
 #include <rte_ether.h>
-#include <rte_udp.h>
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
@@ -165,17 +164,12 @@ l2fwd_mac_updating(struct rte_mbuf *m, unsigned dest_portid)
 	rte_ether_addr_copy(&l2fwd_ports_eth_addr[dest_portid], &eth->s_addr);
 }
 
-#define OOO_POISON      (0x57332BEA7FEA7012ULL)
 static void
 l2fwd_swap_headers(struct rte_mbuf *m)
 {
 	struct rte_ether_hdr *eth;
 	struct rte_ipv4_hdr *ip;
-	struct rte_udp_hdr *udp;
-	unsigned long long *ptr;
 	int tmp[RTE_ETHER_ADDR_LEN];
-
-	static unsigned long long rx_cnt, noop, next, ooo;
 
 	eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
@@ -190,26 +184,6 @@ l2fwd_swap_headers(struct rte_mbuf *m)
 	ip->src_addr ^= ip->dst_addr;
 	ip->dst_addr ^= ip->src_addr;
 	ip->src_addr ^= ip->dst_addr;
-#if 0
-	udp = (struct rte_udp_hdr *)&ip[1];
-	ptr = (unsigned long long *)&udp[1];
-
-	if (ip->next_proto_id != 17)
-		return;
-
-	++rx_cnt;
-	if (ptr[0] != OOO_POISON) {
-		++noop;
-		printf("Non OOO packet [%lld/%lld] [%x]\n", rx_cnt, noop, ip->next_proto_id);
-	}
-
-	if (ptr[1] != next) {
-		++ooo;
-		printf("OOO receive [%lld/%lld]got %lld expected %lld\n", ooo, rx_cnt, ptr[1], next);
-		next = ptr[1];
-	}
-	++next;
-#endif
 }
 
 static void

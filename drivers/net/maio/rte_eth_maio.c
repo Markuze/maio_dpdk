@@ -543,109 +543,6 @@ static const struct eth_dev_ops ops = {
 	.stats_reset = eth_stats_reset,
 };
 
-#define OOO_POISON      (0x57332BEA7FEA7012ULL)
-//static inline
-struct ooo_state {
-	const char *name;
-	unsigned long long next;
-	unsigned long long rx_cnt;
-	unsigned long long ooo;
-};
-
-#define REORDER_WINDOW_SIZE	256
-
-struct reorder_window {
-	unsigned long long next;
-	unsigned long long head_idx;
-	unsigned long long count;
-	struct rte_mbuf *mbufs[REORDER_WINDOW_SIZE];
-};
-static struct reorder_window reorder_buffer;//TODO: should be part of state (5 tuple)
-
-static inline int push_ooo(struct reorder_window *buffer, struct rte_mbuf *m, long long idx)
-{
-	//printf("%s: %p [%llu, %llu, %llu] - %llu\n", __FUNCTION__, m, buffer->count, buffer->next, buffer->head_idx & (REORDER_WINDOW_SIZE -1), idx);
-	if (idx < 0)
-		return 1;
-
-	if (idx >= REORDER_WINDOW_SIZE)
-		return 1;
-
-	++buffer->count;
-	buffer->mbufs[(buffer->head_idx + idx) & (REORDER_WINDOW_SIZE -1)] = m;
-	return 0;
-}
-
-static inline struct rte_mbuf *pop_ooo(struct reorder_window *buffer)
-{
-	struct rte_mbuf *m = buffer->mbufs[(buffer->head_idx) & (REORDER_WINDOW_SIZE -1)];
-
-	if (!m)
-		return NULL;
-
-	//printf("%s: %p [%llu, %llu, %llu]\n", __FUNCTION__, m, buffer->count, buffer->next, buffer->head_idx & (REORDER_WINDOW_SIZE -1));
-	--buffer->count;
-	++buffer->next;
-	++buffer->head_idx;
-
-	return m;
-}
-
-static inline struct rte_mbuf *fix_ooo(struct rte_mbuf *m, struct ooo_state *state)
-{
-
-	struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-	struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)&eth[1];
-	struct rte_udp_hdr *udp = (struct rte_udp_hdr *)&ip[1];
-	unsigned long long *ptr = (unsigned long long *)&udp[1];
-
-	if (ip->next_proto_id != 17)
-		return m;
-
-	++state->rx_cnt;
-	if (ptr[0] != OOO_POISON) {
-	        printf("%s: Bad Packet %llx\n", state->name, ptr[0]);
-		return m;
-	}
-
-	if (push_ooo(&reorder_buffer, m, ptr[1] - reorder_buffer.next))
-		return m;
-
-	if (ptr[1] != reorder_buffer.next) {
-	        ++state->ooo;
-		return NULL;
-	} else {
-		return pop_ooo(&reorder_buffer);
-	}
-	return m;
-}
-
-static inline void validate_ooo(struct rte_mbuf *m, struct ooo_state *state)
-{
-
-	struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-	struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)&eth[1];
-	struct rte_udp_hdr *udp = (struct rte_udp_hdr *)&ip[1];
-	unsigned long long *ptr = (unsigned long long *)&udp[1];
-
-	if (ip->next_proto_id != 17)
-		return;
-
-	++state->rx_cnt;
-	if (ptr[0] != OOO_POISON) {
-	        printf("%s: Bad Packet %llx\n", state->name, ptr[0]);
-		return;
-	}
-
-	if (ptr[1] != state->next) {
-	        ++state->ooo;
-	        printf("%s: OOO receive [%lld/%lld]got %lld expected %lld\n",
-			state->name, state->ooo, state->rx_cnt, ptr[1], state->next);
-	        state->next = ptr[1];
-	}
-	++state->next;
-}
-
 static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 {
 	struct rte_ether_hdr *eth;
@@ -772,7 +669,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 
 	mbufs[idx] = 0;
 	++idx;
-	idx = (idx & (REFILL_NUM -1));
+	idx &= (REFILL_NUM -1);
 }
 
 static inline struct rte_mbuf *maio_addr2mbuf(uint64_t addr)
@@ -931,29 +828,12 @@ static uint16_t eth_maio_rx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
 {
-	int i, j = 0;
+	int i;
 	uint32_t bytes;
 	uint16_t cnt = 0;
 	uint16_t rcv = 0;
-	struct rte_mbuf **mbufs = bufs;
 	struct user_matrix *matrix = queue;
 	struct pmd_stats *stats = &matrix->stats;
-
-	static struct ooo_state rx_state;
-	rx_state.name = "RX";
-
-	while(nb_pkts) {
-		struct rte_mbuf *m = pop_ooo(&reorder_buffer);
-		if (!m)
-			break;
-		bufs[j++] = m;
-		--nb_pkts;
-
-	}
-	bufs = &bufs[j];
-
-//	if (j)
-//		printf("Polling...[%d]\n", j);
 
 	for (i = 0; i < NUM_MAX_RINGS; i++) {
 		bufs = poll_maio_ring(&matrix->rx[i], bufs, &cnt, &bytes, nb_pkts);
@@ -966,18 +846,7 @@ static uint16_t eth_maio_rx(void *queue,
 		if (!nb_pkts)
 			break;
 	}
-//	if (rcv)
-//		printf("fixing up...\n");
-
-	for (i = 0; i < rcv; i++) {
-		struct rte_mbuf *m = fix_ooo(mbufs[i], &rx_state);
-		if (m)
-			mbufs[j++] = m;
-	}
-
-//	if (j)
-//		printf("Returning %d [%d]\n", j, rcv);
-	return j;
+	return rcv;
 }
 
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
@@ -1122,9 +991,6 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 	uint16_t flags = 0;
 	int i = 0;
 
-	static struct ooo_state tx_state;
-	tx_state.name = "TX";
-
 	while (nb_pkts--)  {
 		struct rte_mbuf *mbuf = NULL, *m_seg;
 		struct rte_mbuf *tx_mbuf = *bufs;
@@ -1140,6 +1006,7 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 				struct io_md *comp_md 	= mbuf2io_md(comp_mbuf);
 
 				++comp_md->tx_compl;
+
 				if (comp_md->tx_cnt == comp_md->tx_compl) {
 					enque_mbuf(comp_mbuf);
 				} else {
@@ -1160,7 +1027,6 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 #endif
 		/*********************/
 
-		validate_ooo(mbuf, &tx_state);
 		m_seg = mbuf;
 		do {
 			seg_md 	= mbuf2io_md(m_seg);
