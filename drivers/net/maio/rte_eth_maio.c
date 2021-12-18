@@ -983,6 +983,7 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 	return new;
 }
 
+#define CPY_TX
 static inline int post_maio_ring(struct tx_user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
