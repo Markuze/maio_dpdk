@@ -5,5 +5,5 @@
 
 # setup hugepages
 cat /proc/meminfo
-sudo sh -c 'echo 1024 > /proc/sys/vm/nr_hugepages'
+sudo sh -c 'echo 2048 > /proc/sys/vm/nr_hugepages'
 cat /proc/meminfo
