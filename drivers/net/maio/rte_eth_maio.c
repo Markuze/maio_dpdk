@@ -43,6 +43,7 @@
 static struct rte_mempool *maio_mb_pool;
 static int maio_logtype;
 
+static int zc_tx_set;
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
 static struct rte_mbuf *stalled;;
@@ -73,6 +74,7 @@ static const char *const valid_arguments[] = {
 	ETH_MAIO_IFACE_ARG,
 	ETH_MAIO_QUEUE_COUNT_ARG,
 	ETH_MAIO_QUEUE_LEN_ARG,
+	ETH_MAIO_ZC_TX_ARG,
 	NULL
 };
 
@@ -1018,14 +1020,14 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		SHOW_IO(tx_mbuf, "cpyTX");
 		ASSERT(tx_mbuf->pool == maio_mb_pool);
 
-#ifdef CPY_TX
-		mbuf = get_cpy_mbuf(tx_mbuf);
-		if (unlikely(!mbuf))
-			goto stats;
-#else
-		mbuf = tx_mbuf;
-#endif
-		/*********************/
+		if (likely(zc_tx_set)) {
+			mbuf = tx_mbuf;
+		} else {
+			mbuf = get_cpy_mbuf(tx_mbuf);
+			if (unlikely(!mbuf)) {
+				goto stats;
+			}
+		}
 
 		m_seg = mbuf;
 		do {
@@ -1313,7 +1315,12 @@ static inline int parse_parameters(struct rte_kvargs *kvlist, struct in_params *
 	if (ret < 0)
 		goto free_kvlist;
 
-	MAIO_LOG(ERR, "Got %s : %d\n", params->if_name, params->q_cnt);
+	ret = rte_kvargs_process(kvlist, ETH_MAIO_ZC_TX_ARG,
+				 &parse_integer_arg, &params->zc);
+	if (ret < 0)
+		goto free_kvlist;
+
+	MAIO_LOG(ERR, "Got %s : %d\n", params->if_name, params->zc);
 free_kvlist:
 	rte_kvargs_free(kvlist);
 	return ret;
@@ -1364,6 +1371,11 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
                 MAIO_LOG(ERR, "Invalid kvargs value\n");
                 return -EINVAL;
         }
+
+	if (in_params.zc) {
+                MAIO_LOG(ERR, "ZC TX set.\n");
+		zc_tx_set = 1;
+	}
 
         if (strlen(in_params.if_name) == 0) {
                 MAIO_LOG(ERR, "Network interface must be specified\n");
@@ -1417,7 +1429,8 @@ RTE_PMD_REGISTER_VDEV(net_maio, pmd_maio_drv);
 RTE_PMD_REGISTER_PARAM_STRING(net_maio,
                               "iface=<string> "
                               "queue_count=<uint> "
-                              "queue_len=<uint> ");
+                              "queue_len=<uint> "
+				"zc=<uint>");
 
 RTE_INIT(maio_init_log)
 {

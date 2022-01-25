@@ -14,6 +14,7 @@
 #define STOP_PROC_NAME                  "/proc/maio/stop"
 
 #define ETH_MAIO_IFACE_ARG		"iface"
+#define ETH_MAIO_ZC_TX_ARG		"zc"
 #define ETH_MAIO_QUEUE_COUNT_ARG	"queue_count"
 #define ETH_MAIO_QUEUE_LEN_ARG		"queue_len"
 
@@ -141,6 +142,7 @@ struct in_params {
 	char if_name[IFNAMSIZ];
 	int q_cnt;
 	int q_len;
+	int zc;
 };
 
 typedef uint16_t (*eth_napi_tx_burst_t)(void *rxq,
