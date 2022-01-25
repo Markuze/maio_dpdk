@@ -774,7 +774,11 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
 		md 	= mbuf2io_md(mbuf);
+
 		post_refill_rx_page(ring);
+
+		rte_wmb();
+
 		advance_rx_ring(ring);
 		ASSERT(mbuf->pool == maio_mb_pool);
 		ASSERT(md->poison == MAIO_POISON);
@@ -1053,6 +1057,8 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			md->flags	|= MAIO_STATUS_VLAN_VALID;
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
+		/* Just make sure that the ring is updated only *after* all parameters are set */
+		rte_wmb();
 
 		post_tx_ring_safe(ring, rte_pktmbuf_mtod(mbuf, void *));
 		bufs++;
