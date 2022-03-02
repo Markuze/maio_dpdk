@@ -1230,7 +1230,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 							internals->if_index);
 	//TODO: Set to actual num_avail_cpus.
 	MAIO_LOG(ERR, ">>> seting user_matrix info @ %p\n", &matrix->info);
-	matrix->rx_step = 0;
+	//matrix->rx_step = 0;
 	matrix->info.nr_rx_rings = ETH_MAIO_DFLT_NUM_RINGS;
 	matrix->info.nr_tx_rings = ETH_MAIO_DFLT_NUM_RINGS;
 	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
@@ -1381,9 +1381,6 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 	const char *name;
 	static int memory_ready;
 
-	printf("Hello vdev :)[%s]:%s:\n", __FUNCTION__, __TIME__);
-        MAIO_LOG(ERR, "Initializing pmd_maio for %s\n", rte_vdev_device_name(dev));
-
 	if (!trace_fd) {
 		trace_fd = open(trace_marker, O_WRONLY);
 		if (trace_fd < 0) {
@@ -1391,9 +1388,10 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 		}
 		if (trace_fd > 0) {
 			MAIO_LOG(ERR, "trace_fd %d\n", trace_fd);
-			trace_write("Hello :)!\n");
 		}
 	}
+
+        MAIO_LOG(ERR, "Initializing MAIO PMD for %s\n", rte_vdev_device_name(dev));
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
