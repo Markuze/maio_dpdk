@@ -244,8 +244,8 @@ static int eth_dev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_in
 	dev_info->if_index = internals->if_index;
 	dev_info->max_mac_addrs = 1;
 	dev_info->max_rx_pktlen = ETH_FRAME_LEN;
-	dev_info->max_rx_queues = 1;
-	dev_info->max_tx_queues = 1;
+	dev_info->max_rx_queues = ETH_MAIO_DFLT_NUM_RINGS;
+	dev_info->max_tx_queues = ETH_MAIO_DFLT_NUM_RINGS;
 
 	dev_info->min_mtu = RTE_ETHER_MIN_MTU;
 	dev_info->max_mtu = ETH_MAX_MTU;
@@ -481,11 +481,17 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 	MAIO_LOG(ERR, "%s: %d bytes will fit in mbuf (%d bytes)\n",
 		dev->device->name, data_size, buf_size);
 #endif
+	MAIO_LOG(ERR, "%s: init %d\n", __FUNCTION__, rx_queue_id);
 	maio_map_mbuf(mb_pool);
-	dev->data->rx_queues[rx_queue_id] = internals->matrix;
+	internals->matrix->rx_step++;
+	internals->matrix->rings[rx_queue_id].mtrx = internals->matrix;
+	internals->matrix->rings[rx_queue_id].idx = rx_queue_id;
+
+	dev->data->rx_queues[rx_queue_id] = &internals->matrix->rings[rx_queue_id];
 
 	maio_prefill_rx_rings(internals->matrix);
 
+	MAIO_LOG(ERR, "OUT %s: init %d\n", __FUNCTION__, rx_queue_id);
 	return 0;
 #if 0
 err:
@@ -502,7 +508,11 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 	static int tx_proc;
 	static int napi_proc;
 	struct pmd_internals *internals  = dev->data->dev_private;
-	dev->data->tx_queues[tx_queue_id] = internals->matrix;
+
+	MAIO_LOG(ERR, "Init TX Ring %d\n", tx_queue_id);
+	internals->matrix->rings[tx_queue_id].idx = tx_queue_id;
+	internals->matrix->rings[tx_queue_id].mtrx = internals->matrix;
+	dev->data->tx_queues[tx_queue_id] = &internals->matrix->rings[tx_queue_id];
 
 	if (!tx_proc) {
 		if ((tx_proc = open(TX_PROC_NAME, O_RDWR)) < 0) {
@@ -518,12 +528,13 @@ static int eth_tx_queue_setup(struct rte_eth_dev *dev,
 		}
 	}
 
-	internals->matrix->tx[tx_queue_id].fd = tx_proc;
-	internals->matrix->tx[tx_queue_id].dev_idx = internals->if_index;
+	internals->matrix->rings[tx_queue_id].tx_fd = tx_proc;
+	internals->matrix->rings[tx_queue_id].dev_idx = internals->if_index;
 
-	internals->matrix->tx[NAPI_THREAD_IDX].fd = napi_proc;
-	internals->matrix->tx[NAPI_THREAD_IDX].dev_idx = internals->if_index;
+	internals->matrix->rings[NAPI_THREAD_IDX].tx_fd = napi_proc;
+	internals->matrix->rings[NAPI_THREAD_IDX].dev_idx = internals->if_index;
 
+	MAIO_LOG(ERR, "OUT %s: init %d\n", __FUNCTION__, tx_queue_id);
 	return 0;
 }
 
@@ -700,7 +711,7 @@ static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mb
 	post_rx_ring_entry(ring, mbuf);
 }
 
-static inline void post_tx_ring_safe(struct tx_user_ring *ring, void *addr)
+static inline void post_tx_ring_safe(struct user_ring *ring, void *addr)
 {
 	struct io_md *md = void2io_md(addr);
 
@@ -894,7 +905,7 @@ static inline void maio_prefill_rx_rings(struct user_matrix *matrix)
 	int i;
 
 	for (i = 0; i < NUM_MAX_RINGS; i++) {
-		int cnt = prefill_maio_ring(&matrix->rx[i]);
+		int cnt = prefill_maio_ring(&matrix->rings[i].rx);
 		if (cnt)
 			MAIO_LOG(ERR, "Prefilled %d pages on ring %d\n", cnt, i);
 			add_maio_stat(MAIO_PREFILL, cnt);
@@ -909,11 +920,12 @@ static uint16_t eth_maio_rx(void *queue,
 	uint32_t bytes;
 	uint16_t cnt = 0;
 	uint16_t rcv = 0;
-	struct user_matrix *matrix = queue;
+	struct user_qp_ring *ring = queue;
+	struct user_matrix *matrix = ring->mtrx;
 	struct pmd_stats *stats = &matrix->stats;
 
-	for (i = 0; i < NUM_MAX_RINGS; i++) {
-		bufs = poll_maio_ring(&matrix->rx[i], bufs, &cnt, &bytes, nb_pkts);
+	for (i = ring->idx; i < NUM_MAX_RINGS; i += matrix->rx_step) {
+		bufs = poll_maio_ring(&ring->rx, bufs, &cnt, &bytes, nb_pkts);
 		nb_pkts -= cnt;
 		rcv 	+= cnt;
 
@@ -1014,7 +1026,6 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	comp_ring_tail	= mbuf;
 	inc_maio_stat(MAIO_TX_COMP_PENDING);
 drain:
-
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring)) {
 		struct rte_mbuf *m = remove_comp_ring_head();
@@ -1026,6 +1037,7 @@ drain:
 		struct rte_mbuf *m 	= remove_comp_ring_head();
 		struct io_md *md	= mbuf2io_md(m);
 		if (md->state == MAIO_PAGE_USER)  {
+			MAIO_LOG(ERR, "Check in_transit update %p [%d]", m, test_gc_enque);
 			maio_put_mbuf(m);
 			inc_maio_stat(MAIO_COMP_CHK);
 			inc_maio_stat(MAIO_TX_COMP);
@@ -1075,7 +1087,7 @@ static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 	return new;
 }
 
-static inline int post_maio_ring(struct tx_user_ring *ring,
+static inline int post_maio_ring(struct user_ring *ring,
 					struct rte_mbuf **bufs,
 					uint16_t nb_pkts, struct q_stat *tx_queue)
 {
@@ -1173,26 +1185,13 @@ static uint16_t eth_maio_napi(void *queue,
 	char write_buffer[WRITE_BUFF_LEN] = {0};
 	int len, rc;
 
-# if 0
-	if (lwm_mark_trigger) {
-		struct rte_mbuf *mbufs[REFILL_NUM];
-
-		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
-			MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
-			return -ENOMEM;
-		}
-
-		rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], mbufs, REFILL_NUM, NULL);
-		--lwm_mark_trigger;
-	}
-#endif
-	rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
-    add_maio_stat(MAIO_NAPI, rc);
-    if (unlikely(nb_pkts - rc))
-        add_maio_stat(MAIO_NAPI_SLOW, nb_pkts - rc);
+	rc = post_maio_ring(&matrix->rings[NAPI_THREAD_IDX].tx, bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
+	add_maio_stat(MAIO_NAPI, rc);
+	if (unlikely(nb_pkts - rc))
+		add_maio_stat(MAIO_NAPI_SLOW, nb_pkts - rc);
 	/* Ring DoorBell -- SysCall */
-	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, NAPI_THREAD_IDX);
-	len = write(matrix->tx[NAPI_THREAD_IDX].fd, write_buffer, len);
+	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->rings[0].dev_idx, NAPI_THREAD_IDX);
+	len = write(matrix->rings[NAPI_THREAD_IDX].tx_fd, write_buffer, len);
 
 	return rc;
 }
@@ -1201,38 +1200,22 @@ static uint16_t eth_maio_tx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
 {
-	struct user_matrix *matrix = queue;
-	struct pmd_stats *stats = &matrix->stats;
+	//struct user_matrix *matrix = queue;
+	struct user_qp_ring *ring = queue;
+	struct pmd_stats *stats = &ring->mtrx->stats;
 	char write_buffer[WRITE_BUFF_LEN] = {0};
-	int len, i, rc = nb_pkts;
+	int len, idx, rc = nb_pkts;
+	idx = ring->idx;
 
-	for (i = 0; i < 1; i++) {
-#if 0
-		if (lwm_mark_trigger) {
-			struct rte_mbuf *mbufs[REFILL_NUM];
+	rc = post_maio_ring(&ring->tx, bufs, nb_pkts, &stats->tx_queue[idx]);
+	/* Ring DoorBell -- SysCall */
+	/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
+	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", ring->dev_idx, idx);
+	len = write(ring->tx_fd, write_buffer, len);
+	//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, ring->dev_idx, i);
 
-			if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
-				MAIO_LOG(ERR, "Failed to get enough buffers on LWM trigger!.\n");
-				return -ENOMEM;
-			}
+	bufs = &bufs[rc];
 
-			rc = post_maio_ring(&matrix->tx[i], mbufs, REFILL_NUM, NULL);
-			--lwm_mark_trigger;
-		}
-#endif
-		rc = post_maio_ring(&matrix->tx[i], bufs, nb_pkts, &stats->tx_queue[i]);
-		/* Ring DoorBell -- SysCall */
-		/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
-		len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, i);
-		len = write(matrix->tx[0].fd, write_buffer, len);
-		//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, matrix->tx[0].dev_idx, i);
-
-		nb_pkts -= rc;
-		if (!nb_pkts)
-			break;
-
-		bufs = &bufs[rc];
-	}
 	add_maio_stat(MAIO_TX, rc);
 	if (nb_pkts)
 		add_maio_stat(MAIO_TX_SLOW, nb_pkts);
@@ -1298,13 +1281,13 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 
 	for (i = 0, k = 0; i < NUM_MAX_RINGS; i++) {
-		matrix->rx[i].ring = matrix->info.rx_rings[i] =
+		matrix->rings[i].rx.ring = matrix->info.rx_rings[i] =
+					&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
+		matrix->rings[i].tx.ring = matrix->info.tx_rings[i] =
 				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
-		matrix->tx[i].ring = matrix->info.tx_rings[i] =
-				&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
-		ASSERT((unsigned long)&matrix->tx[i].ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (unsigned long)&matrix->base[DATA_MTRX_SZ]);
+		ASSERT((unsigned long)&matrix->rings[i].tx.ring[ETH_MAIO_DFLT_NUM_DESCS -1] < (unsigned long)&matrix->base[DATA_MTRX_SZ]);
 
-		MAIO_LOG(ERR, "[%d]RX %p, TX %p\n",i, matrix->rx[i].ring, matrix->tx[i].ring);
+		MAIO_LOG(ERR, "[%d]RX %p, TX %p\n",i, matrix->rings[i].rx.ring, matrix->rings[i].tx.ring);
 	}
 
 	len = write(mtrx_proc, write_buffer, len);
@@ -1442,15 +1425,19 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 	struct rte_eth_dev *eth_dev = NULL;
 	const char *name;
 	static int memory_ready;
-    char buffer[128];
+	char buffer[128];
 
-    log_fd = open("/var/log/maio_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0644);
-    if (log_fd > 0) {
-        int bytes = snprintf(buffer, 128, "Hello World!!! %s\n", __DATE__);
-        write(log_fd, buffer, bytes);
-    } else {
-        MAIO_LOG(ERR,"FAiled to open log_fd\n");
-    }
+	log_fd = open("/var/log/maio_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0644);
+	if (log_fd > 0) {
+	    int bytes = snprintf(buffer, 128, "Hello World!!! %s\n", __DATE__);
+	    write(log_fd, buffer, bytes);
+	} else {
+	    MAIO_LOG(ERR,"FAiled to open log_fd\n");
+	}
+
+	ASSERT(sizeof(struct io_md) == 64);
+	ASSERT(sizeof(struct user_shadow) == 320);
+
 	if (!trace_fd) {
 		trace_fd = open(trace_marker, O_WRONLY);
 		if (trace_fd < 0) {

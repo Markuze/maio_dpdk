@@ -177,17 +177,18 @@ struct meta_ring {
 //	Namely, rings MUST be zeroed-out on init.
 
 struct user_ring {
-	unsigned long consumer;
-	unsigned long long *ring;
+	unsigned long		consumer;
+	unsigned long long	*ring;
+}; //
 
-};// __rte_cache_aligned;
-
-struct tx_user_ring {
-	unsigned long consumer;
-	unsigned long long *ring;
-	int fd;
-	int dev_idx;
-};// __rte_cache_aligned;
+struct user_qp_ring {
+	struct user_matrix	*mtrx;
+	struct user_ring 	rx;
+	struct user_ring 	tx;
+	int			idx;
+	int			tx_fd;
+	int			dev_idx;
+}__rte_cache_aligned;
 
 struct user_matrix {
 	/* MUST BE FIRST - used by the Kernel */
@@ -195,16 +196,10 @@ struct user_matrix {
 
 	/* user land*/
 	struct pmd_stats	stats;
-#if 0
-	//SMP_MULTIPLE_POLLERS
-	struct user_rings rx ;
-	struct user_rings tx __rte_cache_aligned;
-	/* TODO: MAIO KNI : Just Fix KNI to use z-copy */
-	/* Consider Alloc/Free/Completion/Refill rings */
-#endif
 	//Best for single core user I/O
-	struct user_ring rx[NUM_MAX_RINGS] __rte_cache_aligned;
-	struct tx_user_ring tx[NUM_MAX_RINGS] __rte_cache_aligned;
+	int	rx_step;
+
+	struct user_qp_ring rings[NUM_MAX_RINGS] __rte_cache_aligned;
 
 	unsigned long long base[0] __rte_cache_aligned;
 };
