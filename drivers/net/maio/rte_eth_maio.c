@@ -1194,8 +1194,9 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 							internals->if_index);
 	//TODO: Set to actual num_avail_cpus.
 	MAIO_LOG(ERR, ">>> seting user_matrix info @ %p\n", &matrix->info);
-	matrix->info.nr_rx_rings = 8;
-	matrix->info.nr_tx_rings = 8;
+	matrix->rx_step = 0;
+	matrix->info.nr_rx_rings = ETH_MAIO_DFLT_NUM_RINGS;
+	matrix->info.nr_tx_rings = ETH_MAIO_DFLT_NUM_RINGS;
 	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 
