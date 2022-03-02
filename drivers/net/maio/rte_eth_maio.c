@@ -46,7 +46,8 @@ static int maio_logtype;
 static int zc_tx_set;
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
-static struct rte_mbuf *stalled;;
+static struct rte_mbuf *stalled;
+static struct rte_mbuf *stalled_tail;
 static struct rte_mbuf *comp_ring;
 static struct rte_mbuf *comp_ring_tail;
 static unsigned long comp_len;
@@ -899,6 +900,17 @@ static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 #endif
 }
 
+static inline struct rte_mbuf *remove_stalled_head(void)
+{
+	struct rte_mbuf *m = stalled;
+	struct list_head *list = mbuf2list(m);
+
+	stalled = list->next;
+	list->next = NULL;
+
+	return m;
+}
+
 static inline struct rte_mbuf *remove_comp_ring_head(void)
 {
 	struct rte_mbuf *m = comp_ring;
@@ -915,8 +927,25 @@ static inline struct rte_mbuf *remove_comp_ring_head(void)
 
 static inline void enque_stalled(struct rte_mbuf *mbuf)
 {
-	mbuf->next = stalled;
-	stalled = mbuf;
+	struct list_head *list	= mbuf2list(mbuf);
+
+	list->next = NULL;
+
+	if (stalled == NULL) {
+		stalled	= mbuf;
+	} else {
+		list		= mbuf2list(stalled_tail);
+		list->next 	= mbuf;
+	}
+
+	stalled_tail	= mbuf;
+
+	/* drain complete TX buffers */
+	while (maio_tx_complete(stalled)) {
+		struct rte_mbuf *m = remove_stalled_head();
+		maio_put_mbuf(m);
+		MAIO_LOG(ERR, "GC collected %p\n", m);
+	}
 }
 
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
@@ -945,8 +974,15 @@ drain:
 
 	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1)) {
 		struct rte_mbuf *m = remove_comp_ring_head();
-		enque_stalled(m);
-		MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu\n",  comp_len, comp_tot);
+		struct io_md *md	= mbuf2io_md(m);
+
+		if (md->state == MAIO_PAGE_USER)  {
+			MAIO_LOG(ERR, "Check in_transit update %p", m);
+			maio_put_mbuf(m);
+		} else {
+			enque_stalled(m);
+			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p]\n", comp_len, comp_tot, m);
+		}
 		goto drain;
 	}
 
