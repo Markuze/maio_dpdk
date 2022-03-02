@@ -952,6 +952,9 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	struct list_head *list = mbuf2list(mbuf);
 
+	static int test_gc;
+	int	test_gc_enque = 0;
+
 	list->next = NULL;
 
 	if (comp_ring == NULL) {
@@ -964,25 +967,31 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	}
 	++comp_len;
 	comp_ring_tail	= mbuf;
+	++test_gc;
 drain:
-	/* drain complete TX buffers */
-	while (maio_tx_complete(comp_ring)) {
-		struct rte_mbuf *m = remove_comp_ring_head();
-		maio_put_mbuf(m);
-		//MAIO_LOG(ERR, "collected %d|%d\n", comp_ring_idx, comp_ring_tail);
+	test_gc_enque =  (!(test_gc & 0x1f)) & (!!comp_ring);
+
+	if (!test_gc_enque) {
+
+		/* drain complete TX buffers */
+		while (maio_tx_complete(comp_ring)) {
+			struct rte_mbuf *m = remove_comp_ring_head();
+			maio_put_mbuf(m);
+		}
 	}
 
-	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1)) {
-		struct rte_mbuf *m = remove_comp_ring_head();
+	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1) || test_gc_enque) {
+		struct rte_mbuf *m 	= remove_comp_ring_head();
 		struct io_md *md	= mbuf2io_md(m);
-
+/*
 		if (md->state == MAIO_PAGE_USER)  {
-			MAIO_LOG(ERR, "Check in_transit update %p", m);
+			MAIO_LOG(ERR, "Check in_transit update %p [%d]\n", m, test_gc_enque);
 			maio_put_mbuf(m);
 		} else {
+*/
+			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p-%d]\n", comp_len, comp_tot, m, test_gc_enque);
 			enque_stalled(m);
-			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p]\n", comp_len, comp_tot, m);
-		}
+//		}
 		goto drain;
 	}
 
@@ -1049,11 +1058,11 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 
 				++comp_md->tx_compl;
 
-				if (comp_md->tx_cnt == comp_md->tx_compl) {
+	//			if (comp_md->tx_cnt == comp_md->tx_compl) {
 					enque_mbuf(comp_mbuf);
-				} else {
-					rte_pktmbuf_free(comp_mbuf);
-				}
+//				} else {
+//					rte_pktmbuf_free(comp_mbuf);
+//				}
 			}
 		}
 
@@ -1391,7 +1400,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 		}
 	}
 
-        MAIO_LOG(ERR, "Initializing MAIO PMD for %s\n", rte_vdev_device_name(dev));
+        MAIO_LOG(ERR, "Initializing MAIO PMD [%s] for %s\n", "test_gc_enque", rte_vdev_device_name(dev));
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
