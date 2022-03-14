@@ -46,12 +46,12 @@ static int maio_logtype;
 static int zc_tx_set;
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
 
-static struct rte_mbuf *stalled;
-static struct rte_mbuf *stalled_tail;
-static struct rte_mbuf *comp_ring;
-static struct rte_mbuf *comp_ring_tail;
-static unsigned long comp_len;
-static unsigned long comp_tot;
+static _Thread_local struct rte_mbuf *stalled;
+static _Thread_local struct rte_mbuf *stalled_tail;
+static _Thread_local struct rte_mbuf *comp_ring;
+static _Thread_local struct rte_mbuf *comp_ring_tail;
+static _Thread_local unsigned long comp_len;
+static _Thread_local unsigned long comp_tot;
 
 #define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
 #define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
@@ -491,7 +491,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 
 	maio_prefill_rx_rings(internals->matrix);
 
-	MAIO_LOG(ERR, "OUT %s: init %d\n", __FUNCTION__, rx_queue_id);
+	MAIO_LOG(ERR, "OUT %s: init %d (s:%d)\n", __FUNCTION__, rx_queue_id, internals->matrix->rx_step);
 	return 0;
 #if 0
 err:
@@ -733,8 +733,8 @@ static inline int is_head_page(void *buf)
 
 static inline void post_refill_rx_page(struct user_ring *ring)
 {
-	static struct rte_mbuf *mbufs[REFILL_NUM];
-	static int idx;
+	static _Thread_local struct rte_mbuf *mbufs[REFILL_NUM];
+	static _Thread_local int idx;
 
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
@@ -841,16 +841,6 @@ static inline struct rte_mbuf **poll_maio_ring(struct user_ring *ring,
 		if (is_rx_refill_page(addr))
 			break;
 
-/* Current MAIO doesnt push packets via the RX ring - due to refill lag
-
-		//This allows the kernel to return HeadPages
-		if (unlikely(addr_wm_signal(addr))) {
-			post_refill_rx_page(ring);
-			//TODO: Now just pushing headpages will work
-			advance_rx_ring(ring);
-			continue;
-		}
-*/
 		mbuf 	= maio_addr2mbuf(addr);
 		//printf("Received[%ld] 0x%lx - mbuf %lx\n", ring->consumer, addr, mbuf);
 		//printf("mbuf %p: data %p offset %d\n", mbuf, mbuf->buf_addr, mbuf->data_off);
@@ -925,6 +915,7 @@ static uint16_t eth_maio_rx(void *queue,
 	struct pmd_stats *stats = &matrix->stats;
 
 	for (i = ring->idx; i < NUM_MAX_RINGS; i += matrix->rx_step) {
+		ring = &matrix->rings[i];
 		bufs = poll_maio_ring(&ring->rx, bufs, &cnt, &bytes, nb_pkts);
 		nb_pkts -= cnt;
 		rcv 	+= cnt;
@@ -1007,8 +998,8 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	struct list_head *list = mbuf2list(mbuf);
 
-	if (maio_tx_complete(comp_mbuf)) {
-		maio_put_mbuf(comp_mbuf);
+	if (maio_tx_complete(mbuf)) {
+		maio_put_mbuf(mbuf);
 		return;
 	}
 
@@ -1037,7 +1028,6 @@ drain:
 		struct rte_mbuf *m 	= remove_comp_ring_head();
 		struct io_md *md	= mbuf2io_md(m);
 		if (md->state == MAIO_PAGE_USER)  {
-			MAIO_LOG(ERR, "Check in_transit update %p [%d]", m, test_gc_enque);
 			maio_put_mbuf(m);
 			inc_maio_stat(MAIO_COMP_CHK);
 			inc_maio_stat(MAIO_TX_COMP);
@@ -1274,13 +1264,16 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 							internals->if_index);
 	//TODO: Set to actual num_avail_cpus.
 	MAIO_LOG(ERR, ">>> seting user_matrix info @ %p\n", &matrix->info);
-	//matrix->rx_step = 0;
+	matrix->rx_step = 0;
 	matrix->info.nr_rx_rings = ETH_MAIO_DFLT_NUM_RINGS;
 	matrix->info.nr_tx_rings = ETH_MAIO_DFLT_NUM_RINGS;
 	matrix->info.nr_rx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 	matrix->info.nr_tx_sz = ETH_MAIO_DFLT_NUM_DESCS;
 
 	for (i = 0, k = 0; i < NUM_MAX_RINGS; i++) {
+		matrix->rings[i].rx.consumer = 0;
+		matrix->rings[i].tx.consumer = 0;
+
 		matrix->rings[i].rx.ring = matrix->info.rx_rings[i] =
 					&matrix->base[ k++ * (ETH_MAIO_DFLT_NUM_DESCS)];
 		matrix->rings[i].tx.ring = matrix->info.tx_rings[i] =
@@ -1435,8 +1428,8 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 	    MAIO_LOG(ERR,"FAiled to open log_fd\n");
 	}
 
-	ASSERT(sizeof(struct io_md) == 64);
-	ASSERT(sizeof(struct user_shadow) == 320);
+	ASSERT(sizeof(struct io_md) <= 64);
+	//ASSERT(sizeof(struct user_shadow) == 320);
 
 	if (!trace_fd) {
 		trace_fd = open(trace_marker, O_WRONLY);
@@ -1483,7 +1476,6 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 	/* map hugepages to MAIO */
 	if (!memory_ready)
 		rte_memseg_list_walk(prep_map_mem, 0);
-
 	memory_ready = 1;
 
         eth_dev = maio_init_internals(dev, &in_params);
