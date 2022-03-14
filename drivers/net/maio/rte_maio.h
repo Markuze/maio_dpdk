@@ -208,4 +208,56 @@ struct user_matrix {
 
 	unsigned long long base[0] __rte_cache_aligned;
 };
+
+const char* maio_stat_names[] = {
+        "MAIO Prefill		",
+#define MAIO_PREFILL			0
+        "MAIO Pushed		",
+#define MAIO_PUSH        		1
+        "RX			",
+#define MAIO_RX        			2
+        "RX Refill		",
+#define MAIO_RX_REFILL      		3
+        "TX			",
+#define MAIO_TX        			4
+        "DEC			",
+#define MAIO_DEC        		5
+        "FREE			",
+#define MAIO_FREE        		6
+        "TX Slow		",
+#define MAIO_TX_SLOW        		7
+        "TX Comp		",
+#define MAIO_TX_COMP        		8
+        "TX CompGC		",
+#define MAIO_TX_GC_COMP        		9
+        "TX Comp Pending	",
+#define MAIO_TX_COMP_PENDING      	10
+        "TX Comp Stalled	",
+#define MAIO_TX_COMP_STALL      	11
+        "TX Comp Check		",
+#define MAIO_COMP_CHK      		12
+        "TX CPY			",
+#define MAIO_TX_CPY      		13
+        "TX CPY	ERR		",
+#define MAIO_TX_CPY_ERR      		14
+        "RX Refill Alloc	",
+#define MAIO_RX_REFILL_ALLOC		15
+};
+
+#define NR_MAIO_STATS       (sizeof(maio_stat_names)/sizeof(char *))
+
+struct maio_user_stats {
+	uint64_t array[NR_MAIO_STATS];
+};
+
+static inline void __set_maio_stat(struct maio_user_stats *stats, int idx, uint64_t val)
+{
+	stats->array[idx] = val;
+}
+
+static inline void __add_maio_stat(struct maio_user_stats *stats, int idx, int val)
+{
+	stats->array[idx] += val;
+}
+
 #endif //__RTE_MAIO__

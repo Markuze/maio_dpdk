@@ -58,14 +58,10 @@ static unsigned long comp_tot;
 static int trace_fd;
 static int log_fd;
 
-struct memory {
-	uint64_t prefill;
-	uint64_t pushed;
-	uint64_t rx;
-	uint64_t refill;
-	uint64_t tx;
-	uint64_t comp;
-};
+static struct maio_user_stats maio_stats;
+
+#define add_maio_stat(idx, val)	__add_maio_stat(&maio_stats, idx, val)
+#define inc_maio_stat(idx)	__add_maio_stat(&maio_stats, idx, 1)
 
 #define WRITE_BUFF_LEN	256
 
@@ -110,6 +106,49 @@ static void trace_write(const char *fmt, ...)
 
         write(trace_fd, buf, n);
         write(log_fd, buf, n);
+}
+
+static inline void dump_maio_stats(void)
+{
+	unsigned int i = 0;
+
+	for (i = 0; i < NR_MAIO_STATS; i++) {
+		trace_write("%s:%llx\n", maio_stat_names[i], maio_stats.array[i]);
+	}
+}
+
+/* Warning batching is not thread safe. Use TLS instead of static */
+static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
+{
+	if (rte_mbuf_refcnt_read(mbuf) == 1)
+		inc_maio_stat(MAIO_FREE);
+	else
+		inc_maio_stat(MAIO_DEC);
+
+	rte_pktmbuf_free(mbuf);
+# if 0
+	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
+	static int nr_free;
+	struct rte_mbuf *m;
+
+	//TODO: This leaks multiseg packets
+	// If rc == 1 queue for freeing, else dec ref.
+	if ((m = rte_pktmbuf_prefree_seg(mbuf))) {
+		struct io_md *md 	= mbuf2io_md(m);
+		if (md->state != MAIO_PAGE_USER)
+			dump_md(md);
+		free[nr_free++] = m;
+	} else {
+		MAIO_LOG(ERR, "basically impossible... rc = [%d]\n", rte_mbuf_refcnt_read(mbuf));
+	}
+
+	if (unlikely(nr_free == RTE_MAIO_TX_MAX_FREE_BUF_SZ)) {
+		//check if safe is raw?
+
+		rte_mempool_put_bulk(maio_mb_pool, (void **)free, nr_free);
+		nr_free = 0;
+	}
+#endif
 }
 
 static inline int maio_set_state(const char *state)
@@ -348,6 +387,7 @@ static inline int maio_map_mbuf(struct rte_mempool *mb_pool)
                	MAIO_LOG(ERR, "Failed to get enough buffers for fq.\n");
 		return -ENOMEM;
         }
+	add_maio_stat(MAIO_PUSH, len);
 #if 1
 	/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */
 	MAIO_LOG(ERR, "/* TODO: Figure out why not main msl?!?! MAPPING MBUF MEMORY */\n");
@@ -673,11 +713,14 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
+			dump_maio_stats();
 			rte_panic("Hemm - %lu/%lu %d\n", comp_len, comp_tot, __LINE__);
 			return;
 		}
+		add_maio_stat(MAIO_RX_REFILL_ALLOC, REFILL_NUM);
 	}
 
+	inc_maio_stat(MAIO_RX_REFILL);
 	post_rx_ring_safe(ring, mbufs[idx]);
 
 	mbufs[idx] = 0;
@@ -738,7 +781,7 @@ static inline int addr_wm_signal(uint64_t addr)
 	if (!(addr & ETH_MAIO_STRIDE_BOTTOM_MASK)) {
 		mbuf = (struct rte_mbuf *)((addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET);
 		/*TODO: Add rte_pktmbuf_free_bulk optimization */
-		rte_pktmbuf_free(mbuf);
+		maio_put_mbuf(mbuf);
 		return 1;
 	}
 
@@ -838,6 +881,7 @@ static inline void maio_prefill_rx_rings(struct user_matrix *matrix)
 		int cnt = prefill_maio_ring(&matrix->rx[i]);
 		if (cnt)
 			MAIO_LOG(ERR, "Prefilled %d pages on ring %d\n", cnt, i);
+			add_maio_stat(MAIO_PREFILL, cnt);
 	}
 }
 
@@ -860,6 +904,7 @@ static uint16_t eth_maio_rx(void *queue,
 		stats->rx_queue[i].pkts += cnt;
 		stats->rx_queue[i].bytes += bytes;
 
+		add_maio_stat(MAIO_RX, cnt);
 		if (!nb_pkts)
 			break;
 	}
@@ -879,35 +924,6 @@ static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 		dump_md(md);
 #endif
 	return !md->in_transit;
-}
-
-/* Warning this is not thread safe. Use TLS instead of static */
-static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
-{
-	rte_pktmbuf_free(mbuf);
-# if 0
-	static struct rte_mbuf *free[RTE_MAIO_TX_MAX_FREE_BUF_SZ];
-	static int nr_free;
-	struct rte_mbuf *m;
-
-	//TODO: This leaks multiseg packets
-	// If rc == 1 queue for freeing, else dec ref.
-	if ((m = rte_pktmbuf_prefree_seg(mbuf))) {
-		struct io_md *md 	= mbuf2io_md(m);
-		if (md->state != MAIO_PAGE_USER)
-			dump_md(md);
-		free[nr_free++] = m;
-	} else {
-		MAIO_LOG(ERR, "basically impossible... rc = [%d]\n", rte_mbuf_refcnt_read(mbuf));
-	}
-
-	if (unlikely(nr_free == RTE_MAIO_TX_MAX_FREE_BUF_SZ)) {
-		//check if safe is raw?
-
-		rte_mempool_put_bulk(maio_mb_pool, (void **)free, nr_free);
-		nr_free = 0;
-	}
-#endif
 }
 
 static inline struct rte_mbuf *remove_stalled_head(void)
@@ -953,6 +969,8 @@ static inline void enque_stalled(struct rte_mbuf *mbuf)
 	/* drain complete TX buffers */
 	while (maio_tx_complete(stalled)) {
 		struct rte_mbuf *m = remove_stalled_head();
+		inc_maio_stat(MAIO_TX_GC_COMP);
+		inc_maio_stat(MAIO_TX_COMP);
 		maio_put_mbuf(m);
 		MAIO_LOG(ERR, "GC collected %p\n", m);
 	}
@@ -961,8 +979,6 @@ static inline void enque_stalled(struct rte_mbuf *mbuf)
 static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	struct list_head *list = mbuf2list(mbuf);
-
-	static int test_gc;
 
 	list->next = NULL;
 
@@ -976,12 +992,13 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	}
 	++comp_len;
 	comp_ring_tail	= mbuf;
-	++test_gc;
+	inc_maio_stat(MAIO_TX_COMP_PENDING);
 drain:
 
 	/* drain complete TX buffers */
 	while (maio_tx_complete(comp_ring)) {
 		struct rte_mbuf *m = remove_comp_ring_head();
+		inc_maio_stat(MAIO_TX_COMP);
 		maio_put_mbuf(m);
 	}
 
@@ -991,9 +1008,12 @@ drain:
 		if (md->state == MAIO_PAGE_USER)  {
 			MAIO_LOG(ERR, "Check in_transit update %p\n", m);
 			maio_put_mbuf(m);
+			inc_maio_stat(MAIO_COMP_CHK);
+			inc_maio_stat(MAIO_TX_COMP);
 		} else {
 			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p]\n", comp_len, comp_tot, m);
 			enque_stalled(m);
+			inc_maio_stat(MAIO_TX_COMP_STALL);
 		}
 		goto drain;
 	}
@@ -1061,11 +1081,11 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 
 				++comp_md->tx_compl;
 
-	//			if (comp_md->tx_cnt == comp_md->tx_compl) {
+				if (comp_md->tx_cnt == comp_md->tx_compl) {
 					enque_mbuf(comp_mbuf);
-//				} else {
-//					rte_pktmbuf_free(comp_mbuf);
-//				}
+				} else {
+					maio_put_mbuf(comp_mbuf);
+				}
 			}
 		}
 
@@ -1077,7 +1097,10 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 		} else {
 			mbuf = get_cpy_mbuf(tx_mbuf);
 			if (unlikely(!mbuf)) {
+				inc_maio_stat(MAIO_TX_CPY_ERR);
 				goto stats;
+			} else {
+				inc_maio_stat(MAIO_TX_CPY);
 			}
 		}
 
@@ -1187,6 +1210,9 @@ static uint16_t eth_maio_tx(void *queue,
 
 		bufs = &bufs[rc];
 	}
+	add_maio_stat(MAIO_TX, rc);
+	if (nb_pkts)
+		add_maio_stat(MAIO_TX_SLOW, nb_pkts);
 	return rc;
 }
 
