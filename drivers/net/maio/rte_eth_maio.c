@@ -56,13 +56,22 @@ static unsigned long comp_tot;
 #define trace_marker 		"/sys/kernel/debug/tracing/trace_marker"
 #define trace_marker_alt 	"/sys/kernel/tracing/trace_marker"
 static int trace_fd;
+static int log_fd;
+
+struct memory {
+	uint64_t prefill;
+	uint64_t pushed;
+	uint64_t rx;
+	uint64_t refill;
+	uint64_t tx;
+	uint64_t comp;
+};
 
 #define WRITE_BUFF_LEN	256
 
 #define COOKIE "--"
 #define MAIO_LOG(level, fmt, args...)                 		\
 	do {							\
-		fprintf(stderr, "%s)"COOKIE fmt, __FUNCTION__, ##args); \
 		trace_write(fmt, ##args);				\
 	 } while (0)
 
@@ -100,6 +109,7 @@ static void trace_write(const char *fmt, ...)
         va_end(ap);
 
         write(trace_fd, buf, n);
+        write(log_fd, buf, n);
 }
 
 static inline int maio_set_state(const char *state)
@@ -953,7 +963,6 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	struct list_head *list = mbuf2list(mbuf);
 
 	static int test_gc;
-	int	test_gc_enque = 0;
 
 	list->next = NULL;
 
@@ -969,29 +978,23 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	comp_ring_tail	= mbuf;
 	++test_gc;
 drain:
-	test_gc_enque =  (!(test_gc & 0x1f)) & (!!comp_ring);
 
-	if (!test_gc_enque) {
-
-		/* drain complete TX buffers */
-		while (maio_tx_complete(comp_ring)) {
-			struct rte_mbuf *m = remove_comp_ring_head();
-			maio_put_mbuf(m);
-		}
+	/* drain complete TX buffers */
+	while (maio_tx_complete(comp_ring)) {
+		struct rte_mbuf *m = remove_comp_ring_head();
+		maio_put_mbuf(m);
 	}
 
-	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1) || test_gc_enque) {
+	if (comp_len > (ETH_MAIO_DFLT_NUM_DESCS << 1)) {
 		struct rte_mbuf *m 	= remove_comp_ring_head();
 		struct io_md *md	= mbuf2io_md(m);
-/*
 		if (md->state == MAIO_PAGE_USER)  {
-			MAIO_LOG(ERR, "Check in_transit update %p [%d]\n", m, test_gc_enque);
+			MAIO_LOG(ERR, "Check in_transit update %p\n", m);
 			maio_put_mbuf(m);
 		} else {
-*/
-			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p-%d]\n", comp_len, comp_tot, m, test_gc_enque);
+			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p]\n", comp_len, comp_tot, m);
 			enque_stalled(m);
-//		}
+		}
 		goto drain;
 	}
 
@@ -1390,6 +1393,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 	const char *name;
 	static int memory_ready;
 
+	log_fd = open("/var/log/maio_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0644);
 	if (!trace_fd) {
 		trace_fd = open(trace_marker, O_WRONLY);
 		if (trace_fd < 0) {
