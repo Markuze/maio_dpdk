@@ -59,6 +59,8 @@ static int trace_fd;
 static int log_fd;
 
 static struct maio_user_stats maio_stats;
+//static void eth_dev_close(struct rte_eth_dev *dev)
+static struct rte_eth_dev *static_dev;
 
 #define add_maio_stat(idx, val)	__add_maio_stat(&maio_stats, idx, val)
 #define inc_maio_stat(idx)	__add_maio_stat(&maio_stats, idx, 1)
@@ -71,10 +73,22 @@ static struct maio_user_stats maio_stats;
 		trace_write(fmt, ##args);				\
 	 } while (0)
 
-#define ASSERT(exp)								\
-		if (!(exp))							\
-			rte_panic("%s:%d\tassert \"" #exp "\" failed\n",	\
-						__FUNCTION__, __LINE__)		\
+#define maio_panic(fmt, args...)                                \
+    do {							                            \
+        dump_maio_stats();                                      \
+		trace_write(fmt, ##args);				                \
+        fflush(NULL);                                           \
+        eth_dev_close(static_dev);                              \
+        rte_panic(fmt, ##args);                                 \
+	 } while (0)
+
+#define ASSERT(exp)								                \
+        do {                                                    \
+		if (!(exp)) {							                \
+			maio_panic("%s:%d\tassert \"" #exp "\" failed\n",	\
+						__FUNCTION__, __LINE__);	            \
+        }                                                       \
+        } while (0)
 
 static const char *const valid_arguments[] = {
 	ETH_MAIO_IFACE_ARG,
@@ -113,7 +127,7 @@ static inline void dump_maio_stats(void)
 	unsigned int i = 0;
 
 	for (i = 0; i < NR_MAIO_STATS; i++) {
-		trace_write("%s:%llx\n", maio_stat_names[i], maio_stats.array[i]);
+		trace_write("%s:%lld\n", maio_stat_names[i], maio_stats.array[i]);
 	}
 }
 
@@ -635,8 +649,8 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s:\tv%d next %d:SIP: %s DIP: %s\n",
 			str, (ip->version_ihl >> 4) & 0xF, ip->next_proto_id,
 			src_ip, dst_ip);
-
-	printf("%s\n", write_buffer);
+    cur += len;
+    write(trace_fd, write_buffer, cur);
 }
 
 #define mbuf2list(addr)	 &mbuf2io_md(addr)->list
@@ -682,6 +696,7 @@ static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mb
 	} else {
 		md->state = MAIO_PAGE_REFILL;
 	}
+    rte_wmb();
 	post_rx_ring_entry(ring, mbuf);
 }
 
@@ -713,14 +728,15 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
-			dump_maio_stats();
-			rte_panic("Hemm - %lu/%lu %d\n", comp_len, comp_tot, __LINE__);
+            add_maio_stat(MAIO_RX_REFILL_ALLOC_FAIL, REFILL_NUM);
+			//dump_maio_stats();
+			maio_panic("Hemm - %lu/%lu %d\n", comp_len, comp_tot, __LINE__);
 			return;
 		}
 		add_maio_stat(MAIO_RX_REFILL_ALLOC, REFILL_NUM);
 	}
 
-	inc_maio_stat(MAIO_RX_REFILL);
+    inc_maio_stat(MAIO_RX_REFILL);
 	post_rx_ring_safe(ring, mbufs[idx]);
 
 	mbufs[idx] = 0;
@@ -972,7 +988,6 @@ static inline void enque_stalled(struct rte_mbuf *mbuf)
 		inc_maio_stat(MAIO_TX_GC_COMP);
 		inc_maio_stat(MAIO_TX_COMP);
 		maio_put_mbuf(m);
-		MAIO_LOG(ERR, "GC collected %p\n", m);
 	}
 }
 
@@ -985,7 +1000,7 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	if (comp_ring == NULL) {
 		comp_ring	= mbuf;
 		if (comp_len)
-			rte_panic("Comp Len is wrong %lu/%lu\n", comp_len, comp_tot);
+			maio_panic("Comp Len is wrong %lu/%lu\n", comp_len, comp_tot);
 	} else {
 		list		= mbuf2list(comp_ring_tail);
 		list->next 	= mbuf;
@@ -1006,12 +1021,10 @@ drain:
 		struct rte_mbuf *m 	= remove_comp_ring_head();
 		struct io_md *md	= mbuf2io_md(m);
 		if (md->state == MAIO_PAGE_USER)  {
-			MAIO_LOG(ERR, "Check in_transit update %p\n", m);
 			maio_put_mbuf(m);
 			inc_maio_stat(MAIO_COMP_CHK);
 			inc_maio_stat(MAIO_TX_COMP);
 		} else {
-			MAIO_LOG(ERR, "Head Of Line Blocking %lu/%lu [%p]\n", comp_len, comp_tot, m);
 			enque_stalled(m);
 			inc_maio_stat(MAIO_TX_COMP_STALL);
 		}
@@ -1082,10 +1095,14 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 				++comp_md->tx_compl;
 
 				if (comp_md->tx_cnt == comp_md->tx_compl) {
-					enque_mbuf(comp_mbuf);
+                    if (maio_tx_complete(comp_mbuf)) {
+                        maio_put_mbuf(comp_mbuf);
+                    } else {
+                        enque_mbuf(comp_mbuf);
+                    }
 				} else {
-					maio_put_mbuf(comp_mbuf);
-				}
+                        maio_put_mbuf(comp_mbuf);
+                }
 			}
 		}
 
@@ -1167,6 +1184,9 @@ static uint16_t eth_maio_napi(void *queue,
 	}
 #endif
 	rc = post_maio_ring(&matrix->tx[NAPI_THREAD_IDX], bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
+    add_maio_stat(MAIO_NAPI, rc);
+    if (unlikely(nb_pkts - rc))
+        add_maio_stat(MAIO_NAPI_SLOW, nb_pkts - rc);
 	/* Ring DoorBell -- SysCall */
 	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->tx[0].dev_idx, NAPI_THREAD_IDX);
 	len = write(matrix->tx[NAPI_THREAD_IDX].fd, write_buffer, len);
@@ -1305,6 +1325,7 @@ static inline struct rte_eth_dev *maio_init_internals(struct rte_vdev_device *de
 	struct pmd_internals *internals;
 	struct rte_eth_dev *eth_dev = rte_eth_vdev_allocate(dev, sizeof(*internals));
 
+    static_dev = eth_dev;
 	internals = eth_dev->data->dev_private;
         if (eth_dev == NULL || internals == NULL) {
                 MAIO_LOG(ERR, "Failed to init internals\n");
@@ -1413,13 +1434,20 @@ free_kvlist:
 */
 static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 {
-	struct in_params in_params = {0};
+	struct in_params in_params = {""};
 	struct rte_kvargs *kvlist;
 	struct rte_eth_dev *eth_dev = NULL;
 	const char *name;
 	static int memory_ready;
+    char buffer[128];
 
-	log_fd = open("/var/log/maio_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0644);
+    log_fd = open("/var/log/maio_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if (log_fd > 0) {
+        int bytes = snprintf(buffer, 128, "Hello World!!! %s\n", __DATE__);
+        write(log_fd, buffer, bytes);
+    } else {
+        MAIO_LOG(ERR,"FAiled to open log_fd\n");
+    }
 	if (!trace_fd) {
 		trace_fd = open(trace_marker, O_WRONLY);
 		if (trace_fd < 0) {
@@ -1430,7 +1458,7 @@ static int rte_pmd_maio_probe(struct rte_vdev_device *dev)
 		}
 	}
 
-        MAIO_LOG(ERR, "Initializing MAIO PMD [%s] for %s\n", "test_gc_enque", rte_vdev_device_name(dev));
+        MAIO_LOG(ERR, "Initializing MAIO PMD for %s [%s]\n", rte_vdev_device_name(dev), __DATE__);
 
         name = rte_vdev_device_name(dev);
         if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
