@@ -995,6 +995,11 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 {
 	struct list_head *list = mbuf2list(mbuf);
 
+	if (maio_tx_complete(comp_mbuf)) {
+		maio_put_mbuf(comp_mbuf);
+		return;
+	}
+
 	list->next = NULL;
 
 	if (comp_ring == NULL) {
@@ -1088,21 +1093,19 @@ static inline int post_maio_ring(struct tx_user_ring *ring,
 			//This is a kernel owned buffer, try again later.
 			goto stats;
 		} else {
-			if (comp_addr) {
+			if (likely(comp_addr)) {
 				struct rte_mbuf *comp_mbuf = void2mbuf(comp_addr);
 				struct io_md *comp_md 	= mbuf2io_md(comp_mbuf);
 
 				++comp_md->tx_compl;
 
 				if (comp_md->tx_cnt == comp_md->tx_compl) {
-                    if (maio_tx_complete(comp_mbuf)) {
-                        maio_put_mbuf(comp_mbuf);
-                    } else {
-                        enque_mbuf(comp_mbuf);
-                    }
+					enque_mbuf(comp_mbuf);
 				} else {
-                        maio_put_mbuf(comp_mbuf);
-                }
+					// if tx_cnt != tx_compl - packet was sent more then once.
+					// We should be just dec_ref, and only when  tx_cnt != tx_compl enque once.
+					maio_put_mbuf(comp_mbuf);
+		                }
 			}
 		}
 
