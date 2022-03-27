@@ -1169,20 +1169,22 @@ stats:
 static uint16_t eth_maio_napi(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
-{
-	struct user_matrix *matrix = queue;
-	struct pmd_stats *stats = &matrix->stats;
+{	struct user_qp_ring *ring = queue;
+	struct pmd_stats *stats = &ring->mtrx->stats;
 	char write_buffer[WRITE_BUFF_LEN] = {0};
-	int len, rc;
+	int len, idx, rc = nb_pkts;
 
-	rc = post_maio_ring(&matrix->rings[NAPI_THREAD_IDX].tx, bufs, nb_pkts, &stats->tx_queue[NAPI_THREAD_IDX]);
+	idx 	= NAPI_THREAD_IDX;
+	ring 	= &matrix->rings[idx]
+
+	rc = post_maio_ring(&ring->tx, bufs, nb_pkts, &stats->tx_queue[idx]);
+	/* Ring DoorBell -- SysCall */
+	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", ring->dev_idx, idx);
+	len = write(ring->tx_fd, write_buffer, len);
+
 	add_maio_stat(MAIO_NAPI, rc);
 	if (unlikely(nb_pkts - rc))
 		add_maio_stat(MAIO_NAPI_SLOW, nb_pkts - rc);
-	/* Ring DoorBell -- SysCall */
-	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", matrix->rings[0].dev_idx, NAPI_THREAD_IDX);
-	len = write(matrix->rings[NAPI_THREAD_IDX].tx_fd, write_buffer, len);
-
 	return rc;
 }
 
@@ -1190,7 +1192,6 @@ static uint16_t eth_maio_tx(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
 {
-	//struct user_matrix *matrix = queue;
 	struct user_qp_ring *ring = queue;
 	struct pmd_stats *stats = &ring->mtrx->stats;
 	char write_buffer[WRITE_BUFF_LEN] = {0};
@@ -1199,16 +1200,14 @@ static uint16_t eth_maio_tx(void *queue,
 
 	rc = post_maio_ring(&ring->tx, bufs, nb_pkts, &stats->tx_queue[idx]);
 	/* Ring DoorBell -- SysCall */
-	/* dev_idx and fd are only set on ring 0 -- using `i` is a  BUG */
 	len = snprintf(write_buffer, WRITE_BUFF_LEN, "%d %d\n", ring->dev_idx, idx);
 	len = write(ring->tx_fd, write_buffer, len);
-	//printf("Posted %s %d/%d packets on %d ring [%d] \n", (rc == nb_pkts) ? "all":"ERROR", rc, nb_pkts, ring->dev_idx, i);
 
-	bufs = &bufs[rc];
+	//bufs = &bufs[rc];
 
 	add_maio_stat(MAIO_TX, rc);
-	if (nb_pkts)
-		add_maio_stat(MAIO_TX_SLOW, nb_pkts);
+	if (unlikely(nb_pkts - rc))
+		add_maio_stat(MAIO_TX_SLOW, nb_pkts - rc);
 	return rc;
 }
 
