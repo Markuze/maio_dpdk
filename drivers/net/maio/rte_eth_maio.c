@@ -1169,13 +1169,14 @@ stats:
 static uint16_t eth_maio_napi(void *queue,
 				struct rte_mbuf **bufs,
 				uint16_t nb_pkts)
-{	struct user_qp_ring *ring = queue;
+{
+	struct user_qp_ring *ring = queue;
 	struct pmd_stats *stats = &ring->mtrx->stats;
 	char write_buffer[WRITE_BUFF_LEN] = {0};
 	int len, idx, rc = nb_pkts;
 
 	idx 	= NAPI_THREAD_IDX;
-	ring 	= &matrix->rings[idx]
+	ring 	= &ring->mtrx->rings[idx];
 
 	rc = post_maio_ring(&ring->tx, bufs, nb_pkts, &stats->tx_queue[idx]);
 	/* Ring DoorBell -- SysCall */
@@ -1186,6 +1187,15 @@ static uint16_t eth_maio_napi(void *queue,
 	if (unlikely(nb_pkts - rc))
 		add_maio_stat(MAIO_NAPI_SLOW, nb_pkts - rc);
 	return rc;
+}
+static uint16_t eth_maio_napi_wrapper(void *queue,
+					struct rte_mbuf **bufs,
+					uint16_t nb_pkts)
+{
+	struct user_matrix *matrix	= queue;
+	struct user_qp_ring *ring 	= &matrix->rings[NAPI_THREAD_IDX];
+
+	return eth_maio_napi(ring, bufs, nb_pkts);
 }
 
 static uint16_t eth_maio_tx(void *queue,
@@ -1285,7 +1295,7 @@ static inline int setup_maio_matrix(struct pmd_internals *internals)
 	len = write(mtrx_proc, write_buffer, len);
 
 	MAIO_LOG(ERR, ">>> Sent %s\n", write_buffer);
-	internals->napi_burst_tx	= eth_maio_napi;
+	internals->napi_burst_tx	= eth_maio_napi_wrapper;
 	internals->matrix		= matrix;
 #if 0
 	//rte_malloc_dump_stats(stdout, NULL);
