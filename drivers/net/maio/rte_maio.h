@@ -76,29 +76,32 @@
 #define MAIO_PAGE_RX            0x200   // alloced from magz - usualy RX
 #define MAIO_PAGE_USER          0x100   // page in user space control
 
-typedef unsigned long long int u64;
+typedef uint64_t u64;
+typedef uint32_t u32;
+typedef uint16_t u16;
+typedef rte_atomic32_t atomic_t;
 
 struct list_head {
 	struct rte_mbuf *next;
 };
 
+
 struct io_md {
-	/* Kernel Debug */
-	uint64_t state;
+	u32             len;
+	u16             vlan_tci;
+	u16             flags;
+	volatile u32	tx_id;
+	u32             poison;
+	u64             next_frag;
+	u64		__unused1;
 
-	/* I/O params */
-	uint32_t len;
-	uint32_t poison;
-	uint16_t vlan_tci;
-	uint16_t flags;
-
-	/* DPDK Retransmit support */
-	uint16_t tx_cnt;
-	uint16_t tx_compl;
-	struct io_md *next_frag;
-	struct list_head list;
-	volatile uint16_t in_transit;
-	volatile uint16_t in_transit_dbg;
+	/* Debug */
+	u64             state;
+	u64             prev_state;
+	u32             line;
+	u32             prev_line;
+	atomic_t        idx;
+	u32             nr_comp;
 };
 
 struct meta_pages_0 {

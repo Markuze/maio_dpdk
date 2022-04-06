@@ -45,11 +45,12 @@ static int maio_logtype;
 
 static int zc_tx_set;
 #define RTE_MAIO_TX_MAX_FREE_BUF_SZ 64
-
+#if 0
 static _Thread_local struct rte_mbuf *stalled;
 static _Thread_local struct rte_mbuf *stalled_tail;
 static _Thread_local struct rte_mbuf *comp_ring;
 static _Thread_local struct rte_mbuf *comp_ring_tail;
+#endif
 static _Thread_local unsigned long comp_len;
 static _Thread_local unsigned long comp_tot;
 
@@ -633,7 +634,7 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 
 	//len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s\n", str);
 	//cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "%s\t:IN type: 0x%x: len %d \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "\n%s\t:IN type: 0x%x: len %d \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			str,
 			rte_cpu_to_be_16(eth->ether_type),
 			rte_pktmbuf_pkt_len(mbuf),
@@ -679,8 +680,8 @@ static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 
 static inline void __dump_md(struct io_md *md, int line)
 {
-		MAIO_LOG(ERR, "%d: [%llx]state %lx transit %d dbg %d\n", line, ((u64)md & PAGE_MASK),
-				md->state, md->in_transit, md->in_transit_dbg);
+		MAIO_LOG(ERR, "%d: [%llx]state %lx TX %d COMP %d\n", line, ((u64)md & PAGE_MASK),
+				md->state, md->tx_id, md->nr_comp);
 }
 
 #define dump_md(m)	__dump_md(m, __LINE__)
@@ -929,7 +930,7 @@ static uint16_t eth_maio_rx(void *queue,
 	}
 	return rcv;
 }
-
+#if 0
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
@@ -1040,7 +1041,7 @@ drain:
 
 	return;
 }
-
+#endif
 #if 0
 /* Kernel should check for LOCKED flag on free and set status instead of reusing */
 /* TODO: consider using different thread for refill tasks (just change the TX ring from 0/NAPI)*/
@@ -1064,6 +1065,24 @@ static inline void enque_mbuf(struct rte_mbuf *mbuf)
 	return;
 }
 #endif
+
+static inline int is_tx_complete(struct rte_mbuf *mbuf)
+{
+	struct io_md	*md	= mbuf2io_md(mbuf);
+	return	(md->tx_id == 0);
+}
+
+static inline int is_zc_tx(struct rte_mbuf *mbuf)
+{
+	struct io_md	*md	= mbuf2io_md(mbuf);
+	/* TODO: use a static thread/core id */
+	int tx_id = (rte_lcore_id() << 1 | 0x1);
+
+	if (mbuf->next)
+		return 0;
+
+	return (tx_id == rte_atomic32_cmpset(&md->tx_id, 0, tx_id));
+}
 
 static inline struct rte_mbuf *get_cpy_mbuf(struct rte_mbuf *mbuf)
 {
@@ -1091,41 +1110,33 @@ static inline int post_maio_ring(struct user_ring *ring,
 		struct io_md *md, *seg_md;
 		unsigned long long comp_addr = tx_ring_entry(ring);
 
-		if (comp_addr & 0x1) {
-			//This is a kernel owned buffer, try again later.
+		if (unlikely(comp_addr &0x1))
 			goto stats;
-		} else {
-			if (likely(comp_addr)) {
-				struct rte_mbuf *comp_mbuf = void2mbuf(comp_addr);
-				struct io_md *comp_md 	= mbuf2io_md(comp_mbuf);
 
-				++comp_md->tx_compl;
+		if (likely(comp_addr)) {
+			struct rte_mbuf	*comp_mbuf	= void2mbuf(comp_addr);
 
-				if (comp_md->tx_cnt == comp_md->tx_compl) {
-					enque_mbuf(comp_mbuf);
-				} else {
-					// if tx_cnt != tx_compl - packet was sent more then once.
-					// We should be just dec_ref, and only when  tx_cnt != tx_compl enque once.
-					maio_put_mbuf(comp_mbuf);
-		                }
-			}
+			if (is_tx_complete(comp_mbuf))
+				maio_put_mbuf(comp_mbuf);
+			else
+				goto stats;
 		}
 
-		SHOW_IO(tx_mbuf, "cpyTX");
 		ASSERT(tx_mbuf->pool == maio_mb_pool);
 
-		if (likely(zc_tx_set)) {
+		if (likely(is_zc_tx(tx_mbuf))) {
 			mbuf = tx_mbuf;
+			SHOW_IO(mbuf, "ZC_TX");
 		} else {
 			mbuf = get_cpy_mbuf(tx_mbuf);
 			if (unlikely(!mbuf)) {
 				inc_maio_stat(MAIO_TX_CPY_ERR);
 				goto stats;
 			} else {
+				SHOW_IO(mbuf, "Cpy_TX");
 				inc_maio_stat(MAIO_TX_CPY);
 			}
 		}
-
 		m_seg = mbuf;
 		do {
 			seg_md 	= mbuf2io_md(m_seg);
@@ -1136,20 +1147,20 @@ static inline int post_maio_ring(struct user_ring *ring,
 
 			m_seg = m_seg->next;
 			if (m_seg)
-				seg_md->next_frag = rte_pktmbuf_mtod(m_seg, void *);
+				seg_md->next_frag = (u64)rte_pktmbuf_mtod(m_seg, void *);
 			else
-				seg_md->next_frag = NULL;
+				seg_md->next_frag = 0;
 		} while (m_seg != NULL);
 		/************************/
 
 		md = mbuf2io_md(mbuf);
-		++md->tx_cnt;
 
 		/* insert vlan info if necessary */
 		if (mbuf->ol_flags & PKT_TX_VLAN_PKT) {
 			md->flags	|= MAIO_STATUS_VLAN_VALID;
 			md->vlan_tci	= mbuf->vlan_tci;
 		}
+
 		/* Just make sure that the ring is updated only *after* all parameters are set */
 		rte_wmb();
 
