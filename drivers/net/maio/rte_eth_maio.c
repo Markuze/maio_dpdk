@@ -483,14 +483,18 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 		dev->device->name, data_size, buf_size);
 #endif
 	MAIO_LOG(ERR, "%s: init %d\n", __FUNCTION__, rx_queue_id);
-	maio_map_mbuf(mb_pool);
+	if (! internals->mb_pool) {
+		maio_map_mbuf(mb_pool);
+		maio_prefill_rx_rings(internals->matrix);
+		internals->mb_pool = mb_pool
+	}
+
 	internals->matrix->rx_step++;
 	internals->matrix->rings[rx_queue_id].mtrx = internals->matrix;
 	internals->matrix->rings[rx_queue_id].idx = rx_queue_id;
 
 	dev->data->rx_queues[rx_queue_id] = &internals->matrix->rings[rx_queue_id];
 
-	maio_prefill_rx_rings(internals->matrix);
 
 	MAIO_LOG(ERR, "OUT %s: init %d (s:%d)\n", __FUNCTION__, rx_queue_id, internals->matrix->rx_step);
 	return 0;
