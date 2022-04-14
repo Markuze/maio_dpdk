@@ -264,4 +264,22 @@ static inline void __add_maio_stat(struct maio_user_stats *stats, int idx, int v
 	stats->array[idx] += val;
 }
 
+/***** Shadow Entries ****/
+struct shadow_entry {
+        u16 rc:4;
+        u16 state:4;
+        u16 core:7;
+        u16 owner:1; //User:1 , Kernel:0
+        u16 op_id;
+        u64 addr;
+        u64 addr2;
+}__attribute__ ((__packed__));
+
+struct shadow_state {
+        struct shadow_entry entry[NR_SHADOW_LOG_ENTRIES];
+};
+
+#define NR_SHADOW_LOG_ENTRIES   (SHADOW_LOG_SZ/sizeof(struct shadow_entry))
+#define SHADOW_OFF     (VC_MD_OFF - sizeof(struct shadow_state))
+
 #endif //__RTE_MAIO__

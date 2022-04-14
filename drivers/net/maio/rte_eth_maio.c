@@ -673,14 +673,40 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 #define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
 #define void2io_md(addr) (struct io_md *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + VC_MD_OFFSET)
 
+static inline struct shadow_state* addr2shadow(void *addr)
+{
+	uint64_t shadow = (uint64_t)addr;
+	shadow = shadow & PAGE_MASK;
+	shadow |= SHADOW_OFF;
+
+	return (struct shadow_state *)shadow;
+}
+
 static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
 {
 	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
 	md = md & PAGE_MASK;
-	md += VC_MD_OFFSET;
+	md |= VC_MD_OFFSET;
 
 	return (struct io_md *)md;
 }
+
+static inline void __trace_page_state(struct rte_mbuf *mbuf, int op, int line)
+{
+	struct shadow_state     *shadow = addr2shadow(mbuf);
+	struct io_md            *md = mbuf2_io_md(mbuf);
+
+	u32 idx = rte_atomic32_add_return(&md->idx);
+	idx = (idx -1) & (NR_SHADOW_LOG_ENTRIES -1);
+
+	shadow->entry[idx].rc           = rte_mbuf_refcnt_read(mbuf);
+	shadow->entry[idx].state        = 0;
+	shadow->entry[idx].core         = rte_lcore_id();
+	shadow->entry[idx].op_id        = op;
+	shadow->entry[idx].addr         = line;
+	shadow->entry[idx].addr2        =(u64)__builtin_return_address(3);
+}
+#define trace_page_state(m, o)	__trace_page_state(m, o, __LINE__)
 
 static inline void __dump_md(struct io_md *md, int line)
 {
