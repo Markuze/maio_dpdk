@@ -223,7 +223,23 @@ const char* maio_stat_names[] = {
         "FREE			    ",
 #define MAIO_FREE        		    6
         "TX Slow		    ",
-#define MAIO_TX_SLOW        		7
+#define MAIO_TX_SLOW				7
+        "TX CPY			    ",
+#define MAIO_TX_CPY      		    8
+        "TX CPY	ERR		    ",
+#define MAIO_TX_CPY_ERR      		9
+        "RX Refill Alloc	",
+#define MAIO_RX_REFILL_ALLOC		10
+        "RX Refill Alloc Fail	",
+#define MAIO_RX_REFILL_ALLOC_FAIL	11
+        "NAPI		    ",
+#define MAIO_NAPI      		        12
+        "NAPI Slow	",
+#define MAIO_NAPI_SLOW       		13
+        "TX HeadOfLine Blocking 	",
+#define MAIO_TX_HOLB       		14
+
+#if 0
         "TX Comp		    ",
 #define MAIO_TX_COMP        		8
         "TX CompGC		    ",
@@ -234,18 +250,7 @@ const char* maio_stat_names[] = {
 #define MAIO_TX_COMP_STALL      	11
         "TX Comp Check		",
 #define MAIO_COMP_CHK      		    12
-        "TX CPY			    ",
-#define MAIO_TX_CPY      		    13
-        "TX CPY	ERR		    ",
-#define MAIO_TX_CPY_ERR      		14
-        "RX Refill Alloc	",
-#define MAIO_RX_REFILL_ALLOC		15
-        "RX Refill Alloc Fail	",
-#define MAIO_RX_REFILL_ALLOC_FAIL	16
-        "NAPI		    ",
-#define MAIO_NAPI      		        17
-        "NAPI Slow	",
-#define MAIO_NAPI_SLOW       		18
+#endif
 };
 
 #define NR_MAIO_STATS       (sizeof(maio_stat_names)/sizeof(char *))
@@ -264,6 +269,8 @@ static inline void __add_maio_stat(struct maio_user_stats *stats, int idx, int v
 	stats->array[idx] += val;
 }
 
+#define SHADOW_LOG_SZ	640
+
 /***** Shadow Entries ****/
 struct shadow_entry {
         u16 rc:4;
@@ -275,11 +282,26 @@ struct shadow_entry {
         u64 addr2;
 }__attribute__ ((__packed__));
 
+#define NR_SHADOW_LOG_ENTRIES   (SHADOW_LOG_SZ/sizeof(struct shadow_entry))
+#define SHADOW_OFF     (VC_MD_OFFSET - sizeof(struct shadow_state))
+
 struct shadow_state {
         struct shadow_entry entry[NR_SHADOW_LOG_ENTRIES];
 };
 
-#define NR_SHADOW_LOG_ENTRIES   (SHADOW_LOG_SZ/sizeof(struct shadow_entry))
-#define SHADOW_OFF     (VC_MD_OFF - sizeof(struct shadow_state))
+#define MAIO_PAGE_RC_ALLOC		(0x0A)
+#define MAIO_PAGE_RC_ALLOC_HEAD		(0xAE)
+#define MAIO_PAGE_RC_FREE		(0x0F)
+#define MAIO_PAGE_RC_TX			(0x07)
+#define MAIO_PAGE_RC_TX_ZERO		(0x70)
+#define MAIO_PAGE_RC_TX_CPY		(0x7C)
+#define MAIO_PAGE_RC_TX_FRAG		(0x72)
+#define MAIO_PAGE_RC_RX			(0x02)
+#define MAIO_PAGE_RC_COMP		(0x0C)
+#define MAIO_PAGE_RC_NO_COMP		(0x1C)
+#define MAIO_PAGE_RC_REFILL		(0x0E)
+#define MAIO_PAGE_RC_DEC		(0x0D)
+#define MAIO_PAGE_RC_INC		(0x01)
+#define MAIO_PAGE_RC_PUSH		(0x51)
 
 #endif //__RTE_MAIO__

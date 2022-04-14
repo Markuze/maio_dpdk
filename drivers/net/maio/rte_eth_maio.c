@@ -106,6 +106,46 @@ static const struct rte_eth_link pmd_link = {
         .link_autoneg = ETH_LINK_AUTONEG
 };
 
+static inline struct shadow_state* addr2shadow(void *addr)
+{
+	uint64_t shadow = (uint64_t)addr;
+	shadow = shadow & PAGE_MASK;
+	shadow |= SHADOW_OFF;
+
+	return (struct shadow_state *)shadow;
+}
+
+#define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
+#define void2io_md(addr) (struct io_md *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + VC_MD_OFFSET)
+
+static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
+{
+	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
+	md = md & PAGE_MASK;
+	md |= VC_MD_OFFSET;
+
+	return (struct io_md *)md;
+}
+
+
+static inline void __trace_page_state(struct rte_mbuf *mbuf, int op, int line)
+{
+	struct shadow_state     *shadow = addr2shadow(mbuf);
+	struct io_md            *md = mbuf2io_md(mbuf);
+
+	u32 idx = rte_atomic32_add_return(&md->idx, 1);
+	idx = (idx -1) & (NR_SHADOW_LOG_ENTRIES -1);
+
+	shadow->entry[idx].rc           = rte_mbuf_refcnt_read(mbuf);
+	shadow->entry[idx].state        = 0;
+	shadow->entry[idx].core         = rte_lcore_id();
+	shadow->entry[idx].op_id        = op;
+	shadow->entry[idx].owner        = 1;
+	shadow->entry[idx].addr         = line;
+	shadow->entry[idx].addr2        =(u64)__builtin_return_address(0);
+}
+#define trace_page_state(m, o)	__trace_page_state(m, o, __LINE__)
+
 static void trace_write(const char *fmt, ...)
 {
         va_list ap;
@@ -135,10 +175,13 @@ static inline void dump_maio_stats(void)
 /* Warning batching is not thread safe. Use TLS instead of static */
 static inline void maio_put_mbuf(struct rte_mbuf *mbuf)
 {
-	if (rte_mbuf_refcnt_read(mbuf) == 1)
+	if (rte_mbuf_refcnt_read(mbuf) == 1) {
+		trace_page_state(mbuf, MAIO_PAGE_RC_FREE);
 		inc_maio_stat(MAIO_FREE);
-	else
+	} else {
+		trace_page_state(mbuf, MAIO_PAGE_RC_DEC);
 		inc_maio_stat(MAIO_DEC);
+	}
 
 	rte_pktmbuf_free(mbuf);
 # if 0
@@ -486,7 +529,7 @@ static int eth_rx_queue_setup(struct rte_eth_dev *dev,
 	if (! internals->mb_pool) {
 		maio_map_mbuf(mb_pool);
 		maio_prefill_rx_rings(internals->matrix);
-		internals->mb_pool = mb_pool
+		internals->mb_pool = mb_pool;
 	}
 
 	internals->matrix->rx_step++;
@@ -638,8 +681,8 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
 
 	//len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur,"%s\n", str);
 	//cur += len;
-	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "\n%s\t:IN type: 0x%x: len %d \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
-			str,
+	len = snprintf(&write_buffer[cur], WRITE_BUFF_LEN - cur, "\n%s0x%lx\n\t:IN type: 0x%x: len %d \n\t:D_MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+			str, (u64)mbuf,
 			rte_cpu_to_be_16(eth->ether_type),
 			rte_pktmbuf_pkt_len(mbuf),
 			eth->d_addr.addr_bytes[0],
@@ -668,45 +711,6 @@ static inline void show_io(struct rte_mbuf *mbuf, const char* str)
     cur += len;
     write(trace_fd, write_buffer, cur);
 }
-
-#define mbuf2list(addr)	 &mbuf2io_md(addr)->list
-#define void2mbuf(addr)	 (struct rte_mbuf *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + ALLIGNED_MBUF_OFFSET)
-#define void2io_md(addr) (struct io_md *)(((unsigned long long)addr & ETH_MAIO_STRIDE_TOP_MASK) + VC_MD_OFFSET)
-
-static inline struct shadow_state* addr2shadow(void *addr)
-{
-	uint64_t shadow = (uint64_t)addr;
-	shadow = shadow & PAGE_MASK;
-	shadow |= SHADOW_OFF;
-
-	return (struct shadow_state *)shadow;
-}
-
-static inline struct io_md* mbuf2io_md(struct rte_mbuf *mbuf)
-{
-	uint64_t md = (uint64_t)rte_pktmbuf_mtod(mbuf, void *);
-	md = md & PAGE_MASK;
-	md |= VC_MD_OFFSET;
-
-	return (struct io_md *)md;
-}
-
-static inline void __trace_page_state(struct rte_mbuf *mbuf, int op, int line)
-{
-	struct shadow_state     *shadow = addr2shadow(mbuf);
-	struct io_md            *md = mbuf2_io_md(mbuf);
-
-	u32 idx = rte_atomic32_add_return(&md->idx);
-	idx = (idx -1) & (NR_SHADOW_LOG_ENTRIES -1);
-
-	shadow->entry[idx].rc           = rte_mbuf_refcnt_read(mbuf);
-	shadow->entry[idx].state        = 0;
-	shadow->entry[idx].core         = rte_lcore_id();
-	shadow->entry[idx].op_id        = op;
-	shadow->entry[idx].addr         = line;
-	shadow->entry[idx].addr2        =(u64)__builtin_return_address(3);
-}
-#define trace_page_state(m, o)	__trace_page_state(m, o, __LINE__)
 
 static inline void __dump_md(struct io_md *md, int line)
 {
@@ -737,6 +741,7 @@ static inline void post_rx_ring_safe(struct user_ring *ring, struct rte_mbuf *mb
 		ASSERT(md->state == MAIO_PAGE_USER);
 	} else {
 		md->state = MAIO_PAGE_REFILL;
+		trace_page_state(mbuf, MAIO_PAGE_RC_REFILL);
 	}
     rte_wmb();
 	post_rx_ring_entry(ring, mbuf);
@@ -770,7 +775,7 @@ static inline void post_refill_rx_page(struct user_ring *ring)
 	if (! idx) {
 		if (rte_pktmbuf_alloc_bulk(maio_mb_pool, mbufs, REFILL_NUM)) {
 			MAIO_LOG(ERR, "Failed to get enough buffers on RX Refill!.\n");
-            add_maio_stat(MAIO_RX_REFILL_ALLOC_FAIL, REFILL_NUM);
+			    add_maio_stat(MAIO_RX_REFILL_ALLOC_FAIL, REFILL_NUM);
 			//dump_maio_stats();
 			maio_panic("Hemm - %lu/%lu %d\n", comp_len, comp_tot, __LINE__);
 			return;
@@ -961,6 +966,9 @@ static uint16_t eth_maio_rx(void *queue,
 	return rcv;
 }
 #if 0
+
+#define mbuf2list(addr)	 &mbuf2io_md(addr)->list
+
 static inline int maio_tx_complete(struct rte_mbuf *mbuf)
 {
 	struct io_md *md;
@@ -1146,16 +1154,21 @@ static inline int post_maio_ring(struct user_ring *ring,
 		if (likely(comp_addr)) {
 			struct rte_mbuf	*comp_mbuf	= void2mbuf(comp_addr);
 
-			if (is_tx_complete(comp_mbuf))
+			if (is_tx_complete(comp_mbuf)) {
+				trace_page_state(comp_mbuf, MAIO_PAGE_RC_COMP);
 				maio_put_mbuf(comp_mbuf);
-			else
+			} else {
+				trace_page_state(comp_mbuf, MAIO_PAGE_RC_NO_COMP);
+				inc_maio_stat(MAIO_TX_HOLB);
 				goto stats;
+			}
 		}
 
 		ASSERT(tx_mbuf->pool == maio_mb_pool);
 
 		if (likely(is_zc_tx(tx_mbuf))) {
 			mbuf = tx_mbuf;
+			trace_page_state(mbuf, MAIO_PAGE_RC_TX_ZERO);
 			SHOW_IO(mbuf, "ZC_TX");
 		} else {
 			mbuf = get_cpy_mbuf(tx_mbuf);
@@ -1165,6 +1178,7 @@ static inline int post_maio_ring(struct user_ring *ring,
 			} else {
 				SHOW_IO(mbuf, "Cpy_TX");
 				inc_maio_stat(MAIO_TX_CPY);
+				trace_page_state(mbuf, MAIO_PAGE_RC_TX_CPY);
 			}
 		}
 		m_seg = mbuf;
