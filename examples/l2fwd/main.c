@@ -645,8 +645,9 @@ main(int argc, char **argv)
 		nb_lcores * MEMPOOL_CACHE_SIZE), 16 * 8192U);
 
 	/* create the mbuf pool */
-	l2fwd_pktmbuf_pool = rte_pktmbuf_pool_create("mbuf_pool", nb_mbufs -1,
-		MEMPOOL_CACHE_SIZE, 0, (RTE_MBUF_DEFAULT_DATAROOM<<1) - (sizeof(struct rte_mbuf)  + RTE_CACHE_LINE_SIZE), rte_socket_id());
+	l2fwd_pktmbuf_pool = rte_pktmbuf_pool_create_by_ops_with_flags("mbuf_pool", nb_mbufs -1,
+		MEMPOOL_CACHE_SIZE, 0, (RTE_MBUF_DEFAULT_DATAROOM<<1) - (sizeof(struct rte_mbuf)  + RTE_CACHE_LINE_SIZE), rte_socket_id(),
+		NULL, MEMPOOL_F_NO_SPREAD, RTE_MEMPOOL_POPULATE_F_ALIGN_OBJ);
 	if (l2fwd_pktmbuf_pool == NULL)
 		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 

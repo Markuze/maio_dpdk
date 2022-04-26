@@ -124,7 +124,7 @@ int
 rte_mempool_ops_populate(struct rte_mempool *mp, unsigned int max_objs,
 				void *vaddr, rte_iova_t iova, size_t len,
 				rte_mempool_populate_obj_cb_t *obj_cb,
-				void *obj_cb_arg)
+				void *obj_cb_arg, unsigned populate_flags)
 {
 	struct rte_mempool_ops *ops;
 
@@ -133,7 +133,7 @@ rte_mempool_ops_populate(struct rte_mempool *mp, unsigned int max_objs,
 	if (ops->populate == NULL)
 		return rte_mempool_op_populate_default(mp, max_objs, vaddr,
 						       iova, len, obj_cb,
-						       obj_cb_arg);
+						       obj_cb_arg, populate_flags);
 
 	return ops->populate(mp, max_objs, vaddr, iova, len, obj_cb,
 			     obj_cb_arg);

@@ -26,6 +26,7 @@ DPDK_20.0 {
 	rte_mempool_ops_table;
 	rte_mempool_populate_anon;
 	rte_mempool_populate_default;
+	rte_mempool_populate_default_with_flags;
 	rte_mempool_populate_iova;
 	rte_mempool_populate_virt;
 	rte_mempool_register_ops;

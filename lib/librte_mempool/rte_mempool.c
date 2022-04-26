@@ -298,9 +298,9 @@ mempool_ops_alloc_once(struct rte_mempool *mp)
  * on error.
  */
 int
-rte_mempool_populate_iova(struct rte_mempool *mp, char *vaddr,
+rte_mempool_populate_iova_with_flags(struct rte_mempool *mp, char *vaddr,
 	rte_iova_t iova, size_t len, rte_mempool_memchunk_free_cb_t *free_cb,
-	void *opaque)
+	void *opaque, unsigned populate_flags)
 {
 	unsigned i = 0;
 	size_t off;
@@ -339,7 +339,7 @@ rte_mempool_populate_iova(struct rte_mempool *mp, char *vaddr,
 	i = rte_mempool_ops_populate(mp, mp->size - mp->populated_size,
 		(char *)vaddr + off,
 		(iova == RTE_BAD_IOVA) ? RTE_BAD_IOVA : (iova + off),
-		len - off, mempool_add_elem, NULL);
+		len - off, mempool_add_elem, NULL, populate_flags);
 
 	/* not enough room to store one object */
 	if (i == 0) {
@@ -354,6 +354,15 @@ rte_mempool_populate_iova(struct rte_mempool *mp, char *vaddr,
 fail:
 	rte_free(memhdr);
 	return ret;
+}
+
+int
+rte_mempool_populate_iova(struct rte_mempool *mp, char *vaddr,
+				rte_iova_t iova, size_t len,
+				rte_mempool_memchunk_free_cb_t *free_cb,
+				void *opaque)
+{
+	return rte_mempool_populate_iova_with_flags(mp, vaddr, iova, len, free_cb, opaque, 0);
 }
 
 static rte_iova_t
@@ -373,9 +382,9 @@ get_iova(void *addr)
  * objects added, or a negative value on error.
  */
 int
-rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
+rte_mempool_populate_virt_with_flags(struct rte_mempool *mp, char *addr,
 	size_t len, size_t pg_sz, rte_mempool_memchunk_free_cb_t *free_cb,
-	void *opaque)
+	void *opaque, unsigned populate_flags)
 {
 	rte_iova_t iova;
 	size_t off, phys_len;
@@ -406,8 +415,8 @@ rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
 				break;
 		}
 
-		ret = rte_mempool_populate_iova(mp, addr + off, iova,
-			phys_len, free_cb, opaque);
+		ret = rte_mempool_populate_iova_with_flags(mp, addr + off, iova,
+			phys_len, free_cb, opaque, populate_flags);
 		if (ret < 0)
 			goto fail;
 		/* no need to call the free callback for next chunks */
@@ -420,6 +429,14 @@ rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
  fail:
 	rte_mempool_free_memchunks(mp);
 	return ret;
+}
+
+int
+rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
+	size_t len, size_t pg_sz, rte_mempool_memchunk_free_cb_t *free_cb,
+	void *opaque)
+{
+	return rte_mempool_populate_virt_with_flags(mp, addr, len, pg_sz, free_cb, opaque, 0);
 }
 
 /* Get the minimal page size used in a mempool before populating it. */
@@ -452,7 +469,7 @@ rte_mempool_get_page_size(struct rte_mempool *mp, size_t *pg_sz)
  * value on error.
  */
 int
-rte_mempool_populate_default(struct rte_mempool *mp)
+rte_mempool_populate_default_with_flags(struct rte_mempool *mp, unsigned populate_flags)
 {
 	unsigned int mz_flags = RTE_MEMZONE_1GB|RTE_MEMZONE_SIZE_HINT_ONLY;
 	char mz_name[RTE_MEMZONE_NAMESIZE];
@@ -572,15 +589,15 @@ rte_mempool_populate_default(struct rte_mempool *mp)
 			iova = RTE_BAD_IOVA;
 
 		if (pg_sz == 0 || (mz_flags & RTE_MEMZONE_IOVA_CONTIG))
-			ret = rte_mempool_populate_iova(mp, mz->addr,
+			ret = rte_mempool_populate_iova_with_flags(mp, mz->addr,
 				iova, mz->len,
 				rte_mempool_memchunk_mz_free,
-				(void *)(uintptr_t)mz);
+				(void *)(uintptr_t)mz, populate_flags);
 		else
-			ret = rte_mempool_populate_virt(mp, mz->addr,
+			ret = rte_mempool_populate_virt_with_flags(mp, mz->addr,
 				mz->len, pg_sz,
 				rte_mempool_memchunk_mz_free,
-				(void *)(uintptr_t)mz);
+				(void *)(uintptr_t)mz, populate_flags);
 		if (ret < 0) {
 			rte_memzone_free(mz);
 			goto fail;
@@ -594,6 +611,11 @@ rte_mempool_populate_default(struct rte_mempool *mp)
 	return ret;
 }
 
+int
+rte_mempool_populate_default(struct rte_mempool *mp)
+{
+	return rte_mempool_populate_default_with_flags(mp, 0);
+}
 /* return the memory size required for mempool objects in anonymous mem */
 static ssize_t
 get_anon_size(const struct rte_mempool *mp)
@@ -800,7 +822,6 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 		return NULL;
 	}
 
-	flags |= MEMPOOL_F_NO_SPREAD;
 	/* "no cache align" imply "no spread" */
 	if (flags & MEMPOOL_F_NO_CACHE_ALIGN)
 		flags |= MEMPOOL_F_NO_SPREAD;

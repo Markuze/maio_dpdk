@@ -109,9 +109,10 @@ rte_pktmbuf_init(struct rte_mempool *mp,
 
 /* Helper to create a mbuf pool with given mempool ops name*/
 struct rte_mempool *
-rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
+rte_pktmbuf_pool_create_by_ops_with_flags(const char *name, unsigned int n,
 	unsigned int cache_size, uint16_t priv_size, uint16_t data_room_size,
-	int socket_id, const char *ops_name)
+	int socket_id, const char *ops_name,
+	unsigned create_flags, unsigned populate_flags)
 {
 	struct rte_mempool *mp;
 	struct rte_pktmbuf_pool_private mbp_priv;
@@ -130,11 +131,11 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	memset(&mbp_priv, 0, sizeof(mbp_priv));
 	mbp_priv.mbuf_data_room_size = data_room_size;
 	mbp_priv.mbuf_priv_size = priv_size;
-	
+
 	fprintf(stderr, "[%s]Line %d" "elemt size %u [%u + %u]\n", __FUNCTION__, __LINE__, elt_size, data_room_size, priv_size);
 
 	mp = rte_mempool_create_empty(name, n, elt_size, cache_size,
-		 sizeof(struct rte_pktmbuf_pool_private), socket_id, 0);
+		 sizeof(struct rte_pktmbuf_pool_private), socket_id, create_flags);
 	if (mp == NULL)
 		return NULL;
 
@@ -149,7 +150,7 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	}
 	rte_pktmbuf_pool_init(mp, &mbp_priv);
 
-	ret = rte_mempool_populate_default(mp);
+	ret = rte_mempool_populate_default_with_flags(mp, populate_flags);
 	if (ret < 0) {
 		rte_mempool_free(mp);
 		rte_errno = -ret;
@@ -161,6 +162,15 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	return mp;
 }
 
+struct rte_mempool *
+rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
+	unsigned int cache_size, uint16_t priv_size, uint16_t data_room_size,
+	int socket_id, const char *ops_name)
+{
+	return rte_pktmbuf_pool_create_by_ops_with_flags(name, n, cache_size,
+							priv_size, data_room_size,
+							socket_id, ops_name, 0, 0);
+}
 /* helper to create a mbuf pool */
 struct rte_mempool *
 rte_pktmbuf_pool_create(const char *name, unsigned int n,

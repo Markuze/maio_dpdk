@@ -702,6 +702,12 @@ rte_pktmbuf_pool_create_by_ops(const char *name, unsigned int n,
 	unsigned int cache_size, uint16_t priv_size, uint16_t data_room_size,
 	int socket_id, const char *ops_name);
 
+struct rte_mempool *
+rte_pktmbuf_pool_create_by_ops_with_flags(const char *name, unsigned int n,
+	unsigned int cache_size, uint16_t priv_size, uint16_t data_room_size,
+	int socket_id, const char *ops_name,
+	unsigned create_flags, unsigned populate_flags);
+
 /**
  * Get the data room size of mbufs stored in a pktmbuf_pool
  *

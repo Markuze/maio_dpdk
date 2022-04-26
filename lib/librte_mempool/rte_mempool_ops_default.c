@@ -138,8 +138,8 @@ int
 rte_mempool_op_populate_default(struct rte_mempool *mp, unsigned int max_objs,
 				void *vaddr, rte_iova_t iova, size_t len,
 				rte_mempool_populate_obj_cb_t *obj_cb,
-				void *obj_cb_arg)
+				void *obj_cb_arg, unsigned populate_flags)
 {
-	return rte_mempool_op_populate_helper(mp, RTE_MEMPOOL_POPULATE_F_ALIGN_OBJ, max_objs, vaddr, iova,
+	return rte_mempool_op_populate_helper(mp, populate_flags, max_objs, vaddr, iova,
 					len, obj_cb, obj_cb_arg);
 }

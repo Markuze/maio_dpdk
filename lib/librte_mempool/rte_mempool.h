@@ -624,7 +624,8 @@ int rte_mempool_op_populate_helper(struct rte_mempool *mp,
 int rte_mempool_op_populate_default(struct rte_mempool *mp,
 		unsigned int max_objs,
 		void *vaddr, rte_iova_t iova, size_t len,
-		rte_mempool_populate_obj_cb_t *obj_cb, void *obj_cb_arg);
+		rte_mempool_populate_obj_cb_t *obj_cb, void *obj_cb_arg,
+		unsigned populate_flags);
 
 /**
  * @warning
@@ -839,6 +840,8 @@ ssize_t rte_mempool_ops_calc_mem_size(const struct rte_mempool *mp,
  *   Callback function to be executed for each populated object.
  * @param[in] obj_cb_arg
  *   An opaque pointer passed to the callback function.
+ * @param[in] populate_flags
+ *   RTE_MEMPOOL_POPULATE_F_ALIGN_OBJ or 0
  * @return
  *   The number of objects added on success.
  *   On error, no objects are populated and a negative errno is returned.
@@ -846,7 +849,7 @@ ssize_t rte_mempool_ops_calc_mem_size(const struct rte_mempool *mp,
 int rte_mempool_ops_populate(struct rte_mempool *mp, unsigned int max_objs,
 			     void *vaddr, rte_iova_t iova, size_t len,
 			     rte_mempool_populate_obj_cb_t *obj_cb,
-			     void *obj_cb_arg);
+			     void *obj_cb_arg, unsigned populate_flags);
 
 /**
  * @warning
@@ -1114,6 +1117,9 @@ int rte_mempool_populate_iova(struct rte_mempool *mp, char *vaddr,
 	rte_iova_t iova, size_t len, rte_mempool_memchunk_free_cb_t *free_cb,
 	void *opaque);
 
+int rte_mempool_populate_iova_with_flags(struct rte_mempool *mp, char *vaddr,
+	rte_iova_t iova, size_t len, rte_mempool_memchunk_free_cb_t *free_cb,
+	void *opaque, unsigned flags);
 /**
  * Add virtually contiguous memory for objects in the pool at init
  *
@@ -1142,6 +1148,10 @@ rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
 	size_t len, size_t pg_sz, rte_mempool_memchunk_free_cb_t *free_cb,
 	void *opaque);
 
+int
+rte_mempool_populate_virt_with_flags(struct rte_mempool *mp, char *addr,
+	size_t len, size_t pg_sz, rte_mempool_memchunk_free_cb_t *free_cb,
+	void *opaque, unsigned flags);
 /**
  * Add memory for objects in the pool at init
  *
@@ -1156,6 +1166,8 @@ rte_mempool_populate_virt(struct rte_mempool *mp, char *addr,
  *   mempool and a negative errno is returned.
  */
 int rte_mempool_populate_default(struct rte_mempool *mp);
+
+int rte_mempool_populate_default_with_flags(struct rte_mempool *mp, unsigned populate_flags);
 
 /**
  * Add memory from anonymous mapping for objects in the pool at init
